@@ -6,6 +6,7 @@ import tempfile
 import os
 from datetime import date
 
+# ===== YOUR INTERNAL MODULES =====
 from app.ocr_engine import pdf_to_text
 from app.extractor import (
     extract_name,
@@ -26,26 +27,31 @@ API_KEY = "pk_ai_resume_2026"
 # ================= APP INIT =================
 app = FastAPI(
     title="AI Resume Parsing API",
-    version="1.1"
+    version="1.2"
 )
 
 # ================= CORS =================
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],          # allow all origins (safe for now)
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
-# ================= REQUEST MODEL =================
+# ================= REQUEST MODELS =================
 class ResumeURLRequest(BaseModel):
-    resume: str   # S3 public / pre-signed URL
+    resume: str   # S3 public or pre-signed URL
 
 
 # ================= CORE PROCESSOR (LOCKED) =================
 def process_resume_file(resume_path: str, resume_url: str = ""):
+    """
+    This function is LOCKED.
+    Both endpoints call this.
+    Do NOT change logic here unless required.
+    """
     text = pdf_to_text(resume_path)
 
     name = extract_name(text)
@@ -108,7 +114,7 @@ def process_resume_file(resume_path: str, resume_url: str = ""):
     }
 
 
-# ================= ENDPOINT 1 (EXISTING – S3 URL) =================
+# ================= ENDPOINT 1 (S3 / URL – EXISTING) =================
 @app.post("/parse-resume")
 def parse_resume_from_url(
     data: ResumeURLRequest,
@@ -132,10 +138,11 @@ def parse_resume_from_url(
     try:
         return process_resume_file(resume_path, resume_url=data.resume)
     finally:
-        os.remove(resume_path)
+        if os.path.exists(resume_path):
+            os.remove(resume_path)
 
 
-# ================= ENDPOINT 2 (NEW – DIRECT PDF UPLOAD) =================
+# ================= ENDPOINT 2 (DIRECT PDF UPLOAD – NEW) =================
 @app.post("/parse-resume-upload")
 def parse_resume_from_upload(
     file: UploadFile = File(...),
@@ -152,6 +159,8 @@ def parse_resume_from_upload(
         resume_path = tmp.name
 
     try:
+        # resume_url is empty because this is direct upload
         return process_resume_file(resume_path, resume_url="")
     finally:
-        os.remove(resume_path)
+        if os.path.exists(resume_path):
+            os.remove(resume_path)
