@@ -1,9 +1,21 @@
+# ================= API / SERVER =================
+fastapi
+uvicorn
+gunicorn
+python-multipart
+requests
+
+# ================= OCR & PDF =================
 paddleocr
 paddlepaddle
 easyocr
 pdf2image
+pdfminer.six
 pytesseract
 opencv-python
+pillow
+
+# ================= NLP & DATA =================
 spacy
 python-docx
 phonenumbers
