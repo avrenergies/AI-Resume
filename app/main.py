@@ -20,10 +20,14 @@ from app.location_address import extract_current_location, extract_address
 from app.job_matcher import match_job
 
 
+# ================= CONFIG =================
+
 API_KEY = "pk_ai_resume_2026"
 
-app = FastAPI(title="AI Resume Parsing API", version="2.0")
-
+app = FastAPI(
+    title="AI Resume Parsing API",
+    version="3.0"
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -38,8 +42,10 @@ class ResumeURLRequest(BaseModel):
     resume: str
 
 
-# 🔥 UNIVERSAL DOWNLOADER
+# ================= UNIVERSAL DOWNLOADER =================
+
 def download_file(url):
+
     try:
         response = requests.get(url, timeout=40)
     except Exception:
@@ -55,7 +61,9 @@ def download_file(url):
         return tmp.name
 
 
-# 🔥 CORE PARSER (USED BY BOTH V1 + V2)
+# ================= CORE PARSER =================
+# ⚠️ DO NOT overload this with AI logic.
+
 def parse_core(path, resume_url=""):
 
     text = file_to_text(path)
@@ -63,7 +71,11 @@ def parse_core(path, resume_url=""):
     emails = extract_email(text)
     phones = extract_phone(text)
 
-    return {
+    addr = extract_address(text) or {}
+    location = extract_current_location(text) or {}
+
+    result = {
+
         "candidateName": extract_name(text) or "",
         "jobTitle": "",
         "department": "",
@@ -71,17 +83,18 @@ def parse_core(path, resume_url=""):
         "isEmployee": "candidate",
         "certificates": [],
 
-        "address": (extract_address(text) or {}).get("address", ""),
-        "state": (extract_address(text) or {}).get("state", ""),
-        "country": (extract_address(text) or {}).get("country", "India"),
-        "pinCode": (extract_address(text) or {}).get("pincode", ""),
+        "address": addr.get("address", ""),
+        "city": addr.get("city", ""),
+        "state": addr.get("state", ""),
+        "country": addr.get("country", "India"),
+        "pinCode": addr.get("pincode", ""),
 
         "yearsOfExperience": calculate_experience(text),
         "educationQualification": extract_education(text) or "",
 
         "currentWorkLocation": (
-            f"{extract_current_location(text)['state']}, India"
-            if extract_current_location(text) else ""
+            f"{location.get('city','')}, {location.get('state','')}"
+            if location else ""
         ),
 
         "emails": [
@@ -105,11 +118,16 @@ def parse_core(path, resume_url=""):
         },
 
         "appliedDate": date.today().isoformat(),
-        "_raw_text": text  # used internally for v2
+
+        # INTERNAL ONLY
+        "_raw_text": text
     }
+
+    return result
 
 
 # ================= V1 =================
+# 🔒 LOCKED PARSER
 
 @app.post("/parse-resume")
 def parse_resume(data: ResumeURLRequest, x_api_key: str = Header(None)):
@@ -123,6 +141,7 @@ def parse_resume(data: ResumeURLRequest, x_api_key: str = Header(None)):
         result = parse_core(path, data.resume)
         result.pop("_raw_text", None)
         return result
+
     finally:
         os.remove(path)
 
@@ -148,11 +167,12 @@ def parse_upload(file: UploadFile = File(...), x_api_key: str = Header(None)):
         result = parse_core(path)
         result.pop("_raw_text", None)
         return result
+
     finally:
         os.remove(path)
 
 
-# ================= V2 (AI MATCHING) =================
+# ================= V2 (AI ENGINE) =================
 
 @app.post("/v2/parse-resume")
 def parse_resume_v2(data: ResumeURLRequest, x_api_key: str = Header(None)):
@@ -167,9 +187,16 @@ def parse_resume_v2(data: ResumeURLRequest, x_api_key: str = Header(None)):
 
         job_data = match_job(result["_raw_text"])
 
-        result["jobTitle"] = job_data.get("jobTitle", "")
-        result["department"] = job_data.get("department", "")
-        result["matchScore"] = job_data.get("matchScore", 0)
+        result.update({
+            "jobTitle": job_data.get("jobTitle", ""),
+            "department": job_data.get("department", ""),
+            "matchScore": job_data.get("matchScore", 0),
+
+            "skills": job_data.get("skills", []),
+            "skillClusters": job_data.get("skillClusters", {}),
+            "fitScore": job_data.get("fitScore", 0),
+            "missingSkills": job_data.get("missingSkills", [])
+        })
 
         result.pop("_raw_text", None)
         return result
@@ -195,9 +222,16 @@ def parse_upload_v2(file: UploadFile = File(...), x_api_key: str = Header(None))
 
         job_data = match_job(result["_raw_text"])
 
-        result["jobTitle"] = job_data.get("jobTitle", "")
-        result["department"] = job_data.get("department", "")
-        result["matchScore"] = job_data.get("matchScore", 0)
+        result.update({
+            "jobTitle": job_data.get("jobTitle", ""),
+            "department": job_data.get("department", ""),
+            "matchScore": job_data.get("matchScore", 0),
+
+            "skills": job_data.get("skills", []),
+            "skillClusters": job_data.get("skillClusters", {}),
+            "fitScore": job_data.get("fitScore", 0),
+            "missingSkills": job_data.get("missingSkills", [])
+        })
 
         result.pop("_raw_text", None)
         return result
