@@ -2,6 +2,8 @@ import re
 from datetime import datetime
 import math
 
+NOW = datetime.now()
+
 MONTHS = {
     "jan": 1, "january": 1,
     "feb": 2, "february": 2,
@@ -17,27 +19,37 @@ MONTHS = {
     "dec": 12, "december": 12
 }
 
-# ---------- DATE PARSER ----------
+# ================= DATE PARSER =================
+
 def parse_date_safe(text):
     text = text.lower().strip()
-    parts = text.split()
 
+    # Aug 2020
+    parts = text.split()
     if len(parts) == 2 and parts[0] in MONTHS:
         return datetime(int(parts[1]), MONTHS[parts[0]], 1)
 
+    # 06/2018
+    mm_yyyy = re.match(r'(\d{1,2})[/-](\d{4})', text)
+    if mm_yyyy:
+        return datetime(int(mm_yyyy.group(2)), int(mm_yyyy.group(1)), 1)
+
+    # 2018
     if text.isdigit() and len(text) == 4:
         return datetime(int(text), 1, 1)
 
     return None
 
 
-# ---------- LAYER 1: DIRECT EXPERIENCE ----------
+# ================= DIRECT EXPERIENCE =================
+
 def extract_direct_experience(text):
+
     patterns = [
-        r'(\d{1,2}\.\d+)\s*\+?\s*years?',
-        r'(\d{1,2})\s*\+?\s*years?',
-        r'(\d{1,2}\.\d+)\s*yrs?',
-        r'(\d{1,2})\s*yrs?'
+        r'(\d{1,2}\.\d+)\s*\+?\s*(years|yrs)',
+        r'(\d{1,2})\s*\+?\s*(years|yrs)',
+        r'total experience[:\s]+(\d{1,2}\.?\d*)',
+        r'experience[:\s]+(\d{1,2}\.?\d*)'
     ]
 
     for pattern in patterns:
@@ -48,49 +60,72 @@ def extract_direct_experience(text):
     return None
 
 
-# ---------- LAYER 2: DATE RANGE ----------
+# ================= DATE RANGE =================
+
 def calculate_from_dates(text):
-    pattern = r'([A-Za-z]+ \d{4}|\d{4})\s*[-–]\s*(Present|[A-Za-z]+ \d{4}|\d{4})'
+
+    pattern = r'([A-Za-z]+\s\d{4}|\d{1,2}[/-]\d{4}|\d{4})\s*(?:-|–|to)\s*(present|current|till date|[A-Za-z]+\s\d{4}|\d{1,2}[/-]\d{4}|\d{4})'
+
     matches = re.findall(pattern, text, re.IGNORECASE)
 
-    total_months = 0
-    used = set()
+    if not matches:
+        return None
+
+    ranges = []
 
     for start, end in matches:
+
         start_date = parse_date_safe(start)
-        if not start_date:
+        end_date = NOW if end.lower() in ["present", "current", "till date"] else parse_date_safe(end)
+
+        if not start_date or not end_date:
             continue
 
-        end_date = datetime.now() if end.lower() == "present" else parse_date_safe(end)
-        if not end_date:
+        if end_date < start_date:
             continue
 
-        key = (start_date, end_date)
-        if key in used:
-            continue
-        used.add(key)
+        ranges.append((start_date, end_date))
 
-        months = (end_date.year - start_date.year) * 12 + (end_date.month - start_date.month)
-        if months > 0:
-            total_months += months
-
-    if total_months == 0:
+    if not ranges:
         return None
+
+    # 🔥 Merge overlapping ranges (VERY IMPORTANT)
+    ranges.sort()
+
+    merged = [ranges[0]]
+
+    for current in ranges[1:]:
+        prev = merged[-1]
+
+        if current[0] <= prev[1]:
+            merged[-1] = (prev[0], max(prev[1], current[1]))
+        else:
+            merged.append(current)
+
+    total_months = 0
+
+    for start, end in merged:
+        months = (end.year - start.year) * 12 + (end.month - start.month)
+        total_months += months
 
     return total_months / 12
 
 
-# ---------- FINAL EXPERIENCE ----------
+# ================= FINAL EXPERIENCE =================
+
 def calculate_experience(text):
-    # 1️⃣ Direct experience mention
+
+    text = text.lower()
+
+    # ⭐ Priority 1 — Direct mention
     direct = extract_direct_experience(text)
     if direct:
         return math.floor(direct)
 
-    # 2️⃣ Date-based calculation
+    # ⭐ Priority 2 — Date calculation
     calculated = calculate_from_dates(text)
     if calculated:
         return math.floor(calculated)
 
-    # 3️⃣ Fallback
+    # ⭐ Safe fallback
     return 0
