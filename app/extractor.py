@@ -30,20 +30,27 @@ BLACKLIST = [
 def extract_email(text):
     text = normalize_text_for_email(text)
 
-    pattern = r'\b[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.(com|in|org|net|edu)\b'
-    match = re.search(pattern, text, re.IGNORECASE)
+    pattern = r'\b[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.(?:com|in|org|net|edu)\b'
+    matches = re.findall(pattern, text, re.IGNORECASE)
 
-    return match.group().lower() if match else None
+    return list(set(matches))
+
 
 
 # ---------- PHONE ----------
 def extract_phone(text):
+    phones = set()
+
     for match in phonenumbers.PhoneNumberMatcher(text, "IN"):
-        return phonenumbers.format_number(
-            match.number,
-            phonenumbers.PhoneNumberFormat.E164
+        phones.add(
+            phonenumbers.format_number(
+                match.number,
+                phonenumbers.PhoneNumberFormat.E164
+            )
         )
-    return None
+
+    return list(phones)
+
 
 
 # ---------- EDUCATION ----------
