@@ -1,7 +1,18 @@
 import re
 import spacy
 
-nlp = spacy.load("en_core_web_sm")
+
+# ================= SAFE SPACY LOAD =================
+try:
+    nlp = spacy.load(
+        "en_core_web_sm",
+        disable=["parser", "tagger", "lemmatizer"]
+    )
+except:
+    nlp = None
+
+
+# ================= CONSTANTS =================
 
 INDIAN_STATES = [
     "tamil nadu","karnataka","kerala","andhra pradesh",
@@ -14,100 +25,147 @@ INDIAN_STATES = [
 ADDRESS_HINT_WORDS = [
     "street","st","road","rd","nagar","colony","layout",
     "lane","ln","block","sector","phase","building",
-    "apartment","flat","floor","tower","near","opposite"
+    "apartment","flat","floor","tower","near","opposite",
+    "village","post","district"
 ]
 
 NOISE_WORDS = [
     "resume","curriculum","email","phone",
-    "objective","profile","education","experience"
+    "objective","profile","education","experience",
+    "skills","certifications"
+]
+
+TECH_BLACKLIST = [
+    "react","java","python","devops",
+    "django","flask","aws","azure",
+    "node","angular","vue"
 ]
 
 
 # ================= PINCODE =================
 
 def extract_pincode(text):
-    match = re.search(r'\b\d{6}\b', text)
+    match = re.search(r"\b\d{6}\b", text)
     return match.group() if match else ""
 
 
 # ================= STATE =================
 
 def extract_state(text):
-
     text_lower = text.lower()
-
     for state in INDIAN_STATES:
         if state in text_lower:
             return state.title()
-
     return ""
 
 
-# ================= CITY via NER =================
+# ================= LABELED ADDRESS DETECTOR =================
+
+def find_labeled_address(text):
+
+    match = re.search(
+        r'address\s*[:\-]\s*(.+)',
+        text,
+        re.IGNORECASE
+    )
+
+    if match:
+        # capture next 2 lines also
+        start = match.start()
+        lines = text[start:].split("\n")[:3]
+        return " ".join(lines)
+
+    return None
+
+
+# ================= CITY =================
 
 def extract_city(text):
 
-    doc = nlp(text)
+    # Pattern: Chennai – 600096
+    match = re.search(r'([A-Za-z\s]+)[–\-]\s*\d{6}', text)
+    if match:
+        city = match.group(1).strip()
+        if city.lower() not in TECH_BLACKLIST:
+            return city.title()
 
-    for ent in doc.ents:
-        if ent.label_ in ["GPE", "LOC"]:
-            city = ent.text.strip()
-
-            # avoid country mistaken as city
-            if city.lower() != "india":
-                return city
+    # NER fallback
+    if nlp:
+        try:
+            doc = nlp(text[:1000])
+            for ent in doc.ents:
+                if ent.label_ in ["GPE", "LOC"]:
+                    city = ent.text.strip().lower()
+                    if (
+                        city not in TECH_BLACKLIST
+                        and not re.search(r"\d", city)
+                        and city != "india"
+                    ):
+                        return city.title()
+        except:
+            pass
 
     return ""
 
 
-# ================= ADDRESS BLOCK DETECTOR =================
+# ================= SMART ADDRESS DETECTOR =================
 
 def find_address_block(text):
 
     lines = [l.strip() for l in text.split("\n") if l.strip()]
 
+    if not lines:
+        return ""
+
+    # 1️⃣ First check labeled address anywhere
+    labeled = find_labeled_address(text)
+    if labeled:
+        return labeled
+
     candidates = []
 
+    # 2️⃣ Check entire document (top + bottom)
     for i, line in enumerate(lines):
 
         lower = line.lower()
 
-        # Skip obvious noise
         if any(word in lower for word in NOISE_WORDS):
             continue
 
         score = 0
 
         if any(hint in lower for hint in ADDRESS_HINT_WORDS):
-            score += 2
-
-        if re.search(r'\b\d{6}\b', line):
             score += 3
 
-        if any(state in lower for state in INDIAN_STATES):
-            score += 2
+        if re.search(r"\b\d{6}\b", line):
+            score += 5
 
-        if re.search(r'\d+', line):
+        if any(state in lower for state in INDIAN_STATES):
+            score += 3
+
+        if re.search(r"\d+", line):
             score += 1
 
-        if score >= 3:
-            candidates.append((score, i, line))
+        if score >= 4:
+            candidates.append((score, i))
 
     if not candidates:
         return ""
 
-    # pick highest score
-    best = sorted(candidates, reverse=True)[0]
+    # pick highest scoring
+    candidates.sort(reverse=True)
+    _, idx = candidates[0]
 
-    idx = best[1]
+    # capture nearby lines
+    start = max(0, idx - 1)
+    end = min(len(lines), idx + 2)
 
-    # grab neighboring lines (addresses span multiple lines)
-    block = lines[max(0, idx-1): idx+2]
+    block = lines[start:end]
 
     return ", ".join(block)
 
 
-# ================= FINAL EXTRACTOR =================
+# ================= FINAL ADDRESS EXTRACTOR =================
 
 def extract_address(text):
 
@@ -121,7 +179,7 @@ def extract_address(text):
     city = extract_city(address_block)
 
     return {
-        "address": address_block,
+        "address": address_block.strip(),
         "city": city,
         "state": state,
         "country": "India",
@@ -133,8 +191,10 @@ def extract_address(text):
 
 def extract_current_location(text):
 
-    city = extract_city(text)
-    state = extract_state(text)
+    header_text = text[:1200]
+
+    city = extract_city(header_text)
+    state = extract_state(header_text)
 
     if not city and not state:
         return None
