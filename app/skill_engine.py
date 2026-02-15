@@ -1,7 +1,7 @@
 import re
 
-# ⭐ MASTER SKILL LIBRARY
-# Expand anytime safely.
+
+# ================= MASTER SKILL LIBRARY =================
 
 SKILL_DB = {
 
@@ -48,31 +48,57 @@ SKILL_DB = {
 }
 
 
+# ================= SYNONYMS =================
+
+SYNONYMS = {
+    "py": "python",
+    "python3": "python",
+    "nodejs": "node",
+    "postgres": "postgresql",
+    "mongo": "mongodb",
+    "k8s": "kubernetes",
+    "tf": "tensorflow",
+    "cv": "computer vision"
+}
+
+
 # ================= NORMALIZER =================
 
+def normalize_text(text):
+    text = text.lower()
+    text = text.replace("-", " ")
+    text = re.sub(r'[^a-z0-9+.#/ ]', ' ', text)
+    text = re.sub(r'\s+', ' ', text)
+    return text.strip()
+
+
 def normalize_skill(skill):
-    return skill.lower().strip()
+    skill = skill.lower().strip()
+    return SYNONYMS.get(skill, skill)
 
 
 # ================= SKILL EXTRACTION =================
 
 def extract_skills(text):
 
-    text = text.lower()
+    text = normalize_text(text)
 
     detected = set()
+
+    # Apply synonym expansion in text
+    for short, full in SYNONYMS.items():
+        text = re.sub(r'\b' + re.escape(short) + r'\b', full, text)
 
     for category, skills in SKILL_DB.items():
 
         for skill in skills:
 
-            # exact word match
             pattern = r'\b' + re.escape(skill) + r'\b'
 
             if re.search(pattern, text):
                 detected.add(skill)
 
-    return sorted(list(detected))
+    return sorted(detected)
 
 
 # ================= CLUSTERING =================
@@ -86,42 +112,56 @@ def cluster_skills(skills):
         matched = list(set(skills) & set(db_skills))
 
         if matched:
-            clusters[category] = matched
+            clusters[category] = sorted(matched)
 
     return clusters
+
+
+# ================= JOB ROLE EXPECTATION =================
+
+ROLE_KEYWORDS = {
+    "data": ["data", "analyst", "scientist"],
+    "backend": ["backend", "api", "server"],
+    "frontend": ["frontend", "ui", "react"],
+    "ai_ml": ["ml", "ai", "machine", "vision"],
+    "devops": ["devops", "infrastructure"],
+    "cloud": ["cloud", "aws", "azure"]
+}
+
+
+def infer_expected_skills(job_title):
+
+    job_title = job_title.lower()
+
+    expected = []
+
+    for category, keywords in ROLE_KEYWORDS.items():
+        if any(k in job_title for k in keywords):
+            expected.extend(SKILL_DB.get(category, []))
+
+    # fallback: general tech expectation
+    if not expected:
+        expected = sum(SKILL_DB.values(), [])
+
+    return list(set(expected))
 
 
 # ================= FIT SCORE =================
 
 def calculate_skill_fit(resume_skills, job_title):
 
-    """
-    Basic intelligence:
-    Match job keywords inside title
-    against candidate skills.
-    """
-
     if not resume_skills:
         return 0, []
 
-    job_title = job_title.lower()
-
-    expected = []
-
-    # naive mapping (can become AI later)
-    for category, skills in SKILL_DB.items():
-
-        if any(word in job_title for word in category.split("_")):
-            expected.extend(skills)
-
-    if not expected:
-        # fallback: assume tech job
-        expected = sum(SKILL_DB.values(), [])
+    expected = infer_expected_skills(job_title)
 
     matched = list(set(resume_skills) & set(expected))
 
-    score = int((len(matched) / max(len(expected),1)) * 100)
+    score = int((len(matched) / max(len(expected), 1)) * 100)
 
-    missing = list(set(expected) - set(resume_skills))[:10]
+    missing = list(set(expected) - set(resume_skills))
+
+    # limit missing to top 10
+    missing = missing[:10]
 
     return score, missing
