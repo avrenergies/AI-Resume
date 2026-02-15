@@ -1,21 +1,14 @@
-# ================= API =================
 fastapi
 uvicorn
-gunicorn
-python-multipart
 requests
-
-# ================= OCR =================
-easyocr
-pdf2image
+pydantic
+sentence-transformers
+torch
 pdfminer.six
-pillow
-
-# ================= NLP =================
+pdf2image
+pytesseract
+opencv-python
 spacy
 phonenumbers
 python-docx
-
-# ================= AI MATCHING =================
-sentence-transformers
-torch
+pillow
