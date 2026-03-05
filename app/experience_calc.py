@@ -1,4 +1,3 @@
-expe.txt
 import re
 from datetime import datetime
 import math
@@ -203,3 +202,4 @@ def calculate_experience(text):
 
     except Exception:
         return 0
+
