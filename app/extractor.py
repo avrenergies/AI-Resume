@@ -1,4 +1,3 @@
-name.txt
 import re
 import spacy
 import phonenumbers
@@ -290,3 +289,4 @@ def detect_aadhaar(text):
         return None
 
     return re.sub(r"\s", "", match.group())
+
