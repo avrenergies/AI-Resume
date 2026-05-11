@@ -1,0 +1,21 @@
+# CODEOWNERS file
+# This automatically assigns @Mr-Greatlion as reviewer on every PR
+# Learn more: https://docs.github.com/articles/about-code-owners
+
+# Default owner for everything in the repo
+*                   @Mr-Greatlion
+
+# Backend code
+/app/               @Mr-Greatlion
+
+# Data files
+/data/              @Mr-Greatlion
+
+# Configuration files
+requirements.txt    @Mr-Greatlion
+deploy.sh           @Mr-Greatlion
+nginx.conf          @Mr-Greatlion
+resume_api.service  @Mr-Greatlion
+
+# GitHub config files
+/.github/           @Mr-Greatlion
