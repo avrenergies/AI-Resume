@@ -1,0 +1,31 @@
+[Unit]
+Description=AI Resume Parsing API
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/opt/resume_api
+EnvironmentFile=/opt/resume_api/.env
+ExecStart=/opt/resume_api/venv/bin/uvicorn app.main:app \
+    --host 127.0.0.1 \
+    --port 8000 \
+    --workers 2 \
+    --log-level info \
+    --access-log \
+    --proxy-headers \
+    --forwarded-allow-ips="*"
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=resume_api
+
+# Security hardening
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=/tmp /opt/resume_api
+
+[Install]
+WantedBy=multi-user.target

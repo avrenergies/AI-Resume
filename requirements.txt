@@ -1,0 +1,27 @@
+# Core API
+fastapi
+uvicorn[standard]
+requests
+pydantic
+python-multipart
+slowapi
+
+# NLP / ML
+spacy
+sentence-transformers
+torch
+
+# Resume extraction — all formats
+pdfminer.six
+pdf2image
+easyocr
+python-docx
+docx2txt
+striprtf
+pillow
+opencv-python-headless
+pytesseract
+phonenumbers
+
+# spaCy model installed separately:
+# python -m spacy download en_core_web_sm
