@@ -1,15 +1,6 @@
-<<<<<<< HEAD
 venv/
 __pycache__/
 *.pyc
 temp_images/
 temp_page*.jpg
 .env
-=======
-venv/
-__pycache__/
-*.pyc
-temp_images/
-temp_page*.jpg
-.env
->>>>>>> 9d2d7face242eebb6a4a3d878a35ead4285cf42d
