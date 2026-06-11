@@ -34,6 +34,7 @@ STATE_ABBREVIATIONS = {
     "jk": "Jammu and Kashmir"
 }
 
+# ── NEW: Telangana short code (scenario 5) ────────────────────────────────────
 STATE_SHORT_CODES = {
     "tg": "Telangana", "tn": "Tamil Nadu", "ap": "Andhra Pradesh",
     "ka": "Karnataka", "kl": "Kerala", "mh": "Maharashtra",
@@ -60,7 +61,8 @@ INDIAN_DISTRICTS = [
     # Andhra Pradesh
     "visakhapatnam", "vizag", "vijayawada", "guntur", "nellore",
     "kurnool", "kakinada", "tirupati", "rajahmundry", "kadapa",
-    "anantapur", "eluru", "ongole", "srikakulam", "vizianagaram",
+    "anantapur", "anakapalli", "anakaplli", "eluru", "ongole", "srikakulam",
+    "vizianagaram",
     # Telangana
     "hyderabad", "warangal", "nizamabad", "karimnagar", "khammam",
     "ramagundam", "mahbubnagar", "nalgonda", "adilabad", "miryalguda",
@@ -89,17 +91,17 @@ INDIAN_DISTRICTS = [
     "rajkot", "chandigarh", "ludhiana", "amritsar", "jalandhar",
     "dehradun", "guwahati", "bhubaneswar", "cuttack", "raipur",
     "jammu", "srinagar", "shimla", "gurugram", "gurgaon", "faridabad",
-    "baniyapur",  
+    "baniyapur",  # scenario 4
 ]
 
 ADDRESS_HINT_WORDS = [
     "street", "road", "nagar", "colony", "layout", "lane", "block",
     "sector", "phase", "building", "apartment", "flat", "floor", "tower",
-    "near", "opposite", "village", "post", "district", "native place",
+    "near", "opposite", "Village", "post", "district", "native place",
     "door no", "house no", "gate no", "residence", "permanent address",
     "present address", "current address", "mailing address",
     "correspondence address", "communication address",
-    "taluk", "tehsil", "mandal", "plot no", "room no", "survey no",
+    "taluk", "tehsil", "Mandal", "plot no", "room no", "survey no",
     "main road", "bypass", "highway", "industrial area", "civil lines",
     "housing board", "society", "compound", "complex", "enclave", "vihar",
     "garden", "park", "avenue", "market", "bazaar", "chowk",
@@ -108,10 +110,10 @@ ADDRESS_HINT_WORDS = [
     "puram", "pet", "palya", "halli", "guda", "peta",
     "opp", "behind", "beside", "next to", "pincode", "pin code",
     "1st cross", "2nd cross", "3rd cross", "extension", "extn", "HO/NO",
-
-    # ── NEW: scenario 3 Bihar-style abbreviations ─────────────────────────────
-    "at :-", "po :-", "ps :-", "dist :-", "at:", "po:", "ps:", "dist:",
-    "at -", "po -", "ps -", "dist -", "tola", "majhaulia",
+    "at :-", "po :-", "ps :-", "dist :-", "at:", "po:", "ps:", "Dist",
+    "at -", "po -", "ps -", "dist -", "tola", "majhaulia","H.No:","D.No:", "H.No-", "D.No-",
+    "plot no","h.no", "d.no","(vi)", "(v)", "(m)", "(po)", "(ps)", "(dist)", "vi)", "v)", " m)", 
+    "at/po", "at/p", "tq-", "tq –", "state-", "state –","add","tal-", "tal –",
 ]
 
 NOISE_WORDS = [
@@ -130,7 +132,7 @@ STOP_WORDS = [
     "training", "certifications", "achievements", "awards",
     "publications", "references", "to obtain", "to work", "to utilize",
     "to contribute", "to secure", "to join", "seeking", "looking for",
-    "i am seeking", "i wish", "i want", "bio", "career",
+    "i am seeking", "i wish", "i want", "bio", "career","i hereby", "i declare",
 ]
 
 PERSONAL_FIELDS = [
@@ -160,8 +162,15 @@ ADDR_LABEL_RE   = re.compile(
     r"\s*[:\-]?\s*",
     re.MULTILINE,
 )
+ADDRESS_LINE_LABEL_RE = re.compile(
+    r"(?i)^\s*[-#]*\s*(?:permanent\s+address|current\s+address|"
+    r"residential\s+address|correspondence\s+address|present\s+address|"
+    r"address\s+for\s+communication|communication\s+address|"
+    r"mailing\s+address|address)\s*[:\-]"
+)
 
-# ── NEW: door number
+#Scenario 1 – door/plot number patterns (no hint words needed) ────────
+# Matches: 12/27, 4B, No.14, D.No 5, H.No-3, 22A, etc.
 DOOR_NUMBER_RE = re.compile(
     r"^\s*(?:"
     r"[A-Za-z]?\d+[/\\]\d+"        # 12/27, 4/B, A/12
@@ -172,29 +181,50 @@ DOOR_NUMBER_RE = re.compile(
     re.IGNORECASE,
 )
 
-# ── NEW: Bihar/rural AT/PO/PS/DIST pattern ──────────────────────
+# Scenario 2 – Bihar/rural AT/PO/PS/DIST pattern ──────────────────────
 RURAL_ADDR_RE = re.compile(
-    r"(?i)\b(?:at|po|p\.o|ps|p\.s|dist)\s*[:\-]\s*\w",
+     r"(?i)\b(?:at|po|p\.o|ps|p\.s|dist|tq|taluka?|state)\s*[:\-/]\s*\w"
+     r"|at/p[os]?\s*[-–]",   # ← At/P, At/Po, At/Ps
 )
 
-# ── NEW:"Key : value" personal-info table (spaced colon) ───────
+VILLAGE_MANDAL_RE = re.compile(
+    r'\b(?:vi|v|m|po|ps)\s*\)|'       # (VI), (M), (PO)
+    r'\((?:vi|v|m|po|ps)\)',           
+    re.IGNORECASE
+)
+
+# Scenario 3 – "Key : value" personal-info table (spaced colon) ───────
 PERSONAL_INFO_LABEL_RE = re.compile(
     r"(?i)(?:permanent\s+address|current\s+address|residential\s+address|"
     r"address\s+for\s+communication|address)"
-    r"\s{2,}:\s*(.+)",              
+    r"\s{2,}:\s*(.+)",              # 2+ spaces before colon (tabular layout)
 )
 
-# ── NEW: short code like TG-, AP-, KA- before pincode ─────
+#Scenario 4 – state short code like TG-, AP-, KA- before pincode ─────
 STATE_SHORTCODE_PINCODE_RE = re.compile(
     r"\b([A-Z]{2})-\s*(\d{6})\b"
 )
 
+# ============================================================
+#  LINE-LEVEL HELPERS
+# ============================================================
+
 def _is_noise(line: str) -> bool:
     """True if this line is clearly NOT an address (email, phone, dates, etc.)."""
     lo = line.lower()
+    without_contact = re.sub(
+        r"(?i)\b(?:email|e-mail)\s*:?\s*[\w.+-]+@[\w.-]+\.[a-z]{2,}\b",
+        "",
+        line,
+    )
+    without_contact = re.sub(
+        r"(?i)\b(?:cell(?:\s*no)?|mobile|phone|tel|ph)?\s*[-:.]?\s*"
+        r"(?:\+?91[-\s]?)?[6-9]\d{9}\b",
+        "",
+        without_contact,
+    ).strip(" ,.-|;:")
     return (
-        "@" in line
-        or bool(PHONE_RE.search(line))
+        not without_contact
         or bool(YEAR_RANGE_RE.search(line))
         or bool(YEAR_END_RE.search(line))
         or any(n in lo for n in NOISE_WORDS)
@@ -202,9 +232,13 @@ def _is_noise(line: str) -> bool:
 
 
 def _is_stop(line: str) -> bool:
-    """True if this line signals a resume section heading — stop scanning."""
     lo = line.lower()
-    return any(s in lo for s in STOP_WORDS)
+    if any(s in lo for s in STOP_WORDS):
+        return True
+    # Stop at declaration sentences
+    if re.search(r"\bi\s+hereby\b|\bi\s+declare\b|\bto\s+the\s+best\s+of\b|\babove\s+mentioned\b", lo):
+        return True
+    return False
 
 
 def _is_name_line(line: str) -> bool:
@@ -226,15 +260,19 @@ def _has_address_signal(line: str) -> bool:
     lo = line.lower()
     if PINCODE_RE.search(line):
         return True
-    # ──  AT/PO/PS/DIST pattern ──────────────────────────────
+    # scenario 2 – AT/PO/PS/DIST pattern ──────────────────────────────
     if RURAL_ADDR_RE.search(line):
         return True
-    # ──  door/plot number pattern ───────────────────────────
+    if VILLAGE_MANDAL_RE.search(line):
+        return True
+    # scenario 1 – door/plot number pattern ───────────────────────────
     if DOOR_NUMBER_RE.search(line):
         return True
-    # ── TG-508207 style shortcode+pincode ─────────────────
+    # scenario 4 – TG-508207 style shortcode+pincode ─────────────────
     if STATE_SHORTCODE_PINCODE_RE.search(line):
         return True
+    
+
     for state in INDIAN_STATES:
         pat = (r"\b" + re.escape(state) + r"\b") if len(state) <= 3 else re.escape(state)
         if re.search(pat, lo):
@@ -242,24 +280,43 @@ def _has_address_signal(line: str) -> bool:
     for district in INDIAN_DISTRICTS:
         if re.search(r"\b" + re.escape(district) + r"\b", lo):
             return True
-    return any(hint in lo for hint in ADDRESS_HINT_WORDS)
+    return any(hint.lower() in lo for hint in ADDRESS_HINT_WORDS)
 
 
 def _clean_line(line: str) -> str:
     """Strip address labels, pincode text, leading symbols, and extra spaces."""
     line = ADDR_LABEL_RE.sub("", line)
-    line = re.sub(r"(?i)\b(pin\s*code|pincode)\s*[-:]?\s*\d{6}\b", "", line)
+    line = re.sub(
+        r"(?i)^.*?\b(?:s\s*/\s*o|d\s*/\s*o|w\s*/\s*o|c\s*/\s*o)\b"
+        r"\s+[A-Za-z.'-]+(?:\s+[A-Za-z.'-]+)?\s*",
+        "",
+        line,
+    )
+    line = re.sub(r"(?i)\b(?:email|e-mail)\s*:?\s*[\w.+-]+@[\w.-]+\.[a-z]{2,}\b", "", line)
+    line = re.sub(
+        r"(?i)\b(?:cell(?:\s*no)?|mobile|phone|tel|ph)?\s*[-:.]?\s*"
+        r"(?:\+?91[-\s]?)?[6-9]\d{9}\b",
+        "",
+        line,
+    )
+    line = re.sub(r"(?i)\b(pin\s*code|pincode|pin)\s*[-:]?\s*\d{6}\b", "", line)
     line = re.sub(PINCODE_RE, "", line)
     line = re.sub(r"^[\W_]+", "", line)
+    line = re.sub(r"\s+", " ", line)
+    line = re.sub(r"\s*,\s*", ", ", line)
     return line.strip(" ,.-|;:")
 
+# ============================================================
 #  PINCODE
+# ============================================================
 
 def extract_pincode(text: str) -> str:
     match = PINCODE_RE.search(text)
     return match.group() if match else ""
 
+# ============================================================
 #  STATE  (updated: handles TG-, AP- short codes from scenario 5)
+# ============================================================
 
 def extract_state(text: str) -> str:
     lo = text.lower()
@@ -409,6 +466,62 @@ def _try_door_number_line(lines: list[str]) -> str:
     return ""
 
 
+def _try_labeled_address_block(lines: list[str]) -> list[str]:
+    """Scan the full document for a standalone labeled address block."""
+    candidates = []
+
+    for i, line in enumerate(lines):
+        if not ADDRESS_LINE_LABEL_RE.search(line):
+            continue
+
+        parts = []
+        has_pincode = False
+        for part in lines[i: i + 10]:
+            if part != line and _is_stop(part):
+                break
+            if part != line and ADDRESS_LINE_LABEL_RE.search(part):
+                break
+            if _is_noise(part):
+                continue
+
+            cleaned = _clean_line(part)
+            if re.fullmatch(
+                r"(?i)(?:s\s*/\s*o|d\s*/\s*o|w\s*/\s*o|c\s*/\s*o)"
+                r"\s+[A-Za-z.'-]+(?:\s+[A-Za-z.'-]+)?",
+                cleaned,
+            ):
+                continue
+            if (
+                cleaned
+                and part == line
+                and _is_name_line(cleaned)
+                and not PINCODE_RE.search(part)
+                and not STATE_SHORTCODE_PINCODE_RE.search(part)
+            ):
+                continue
+            if (
+                cleaned
+                and _is_name_line(cleaned)
+                and not _has_address_signal(cleaned)
+                and not PINCODE_RE.search(part)
+                and not STATE_SHORTCODE_PINCODE_RE.search(part)
+            ):
+                continue
+            if cleaned and len(cleaned) <= 120:
+                parts.append(cleaned)
+
+            if PINCODE_RE.search(part):
+                has_pincode = True
+                break
+
+        if parts:
+            score = sum(_line_address_confidence(part) for part in parts)
+            score += 3 if has_pincode else 0
+            candidates.append((score, parts))
+
+    return max(candidates, key=lambda item: item[0])[1] if candidates else []
+
+
 # ============================================================
 #  DEEP SCAN — full document, exhaustive last resort
 # ============================================================
@@ -453,7 +566,7 @@ def _line_address_confidence(line: str) -> int:
     # Positive signals
     if PINCODE_RE.search(line):
         score += 2
-    if any(hint in lo for hint in ADDRESS_HINT_WORDS):
+    if any(hint.lower() in lo for hint in ADDRESS_HINT_WORDS):
         score += 2
     for state in INDIAN_STATES:
         pat = (r"" + re.escape(state) + r"") if len(state) <= 3 else re.escape(state)
@@ -595,14 +708,29 @@ def find_address_near_contact_info(text: str) -> str:
 # ============================================================
 
 def extract_address(text: str) -> dict:
+    """
+    Full address extractor. Tries strategies in order:
+      1. Top-of-resume header scan (contact info area)
+      2. Pipe-separated inline contact line
+      3. Labeled address block ("Address: ..." / "Permanent Address: ...")
+      4. Scenario 5: tabular personal-info table (wide-spaced colon)
+      5. Scenario 3: rural AT/PO/PS/DIST pattern
+      6. Scenario 1: door/plot number lines (no hint words)
+      7. spaCy NER on header block
+      8. Pincode line fallback
+      9. State / district fallback
+    Returns: { address, city, state, country, pincode }
+    """
     # ── Scenario 2: strip trailing empty pages before any processing ──────────
     text = _strip_empty_pages(text)
 
     lines = [l.strip() for l in text.split("\n") if l.strip()]
-    address_parts = []
+    address_parts = _try_labeled_address_block(lines)
 
     # ── STRATEGY 1: top-of-resume header scan (first 20 lines) ──────────────
     for i, line in enumerate(lines[:20]):
+        if address_parts:
+            break
         lower = line.lower()
 
         if _is_stop(line):
@@ -617,7 +745,7 @@ def extract_address(text: str) -> dict:
             PINCODE_RE.search(line)
             or "india" in lower
             or any(state in lower for state in INDIAN_STATES)
-            or any(word in lower for word in ADDRESS_HINT_WORDS)
+            or any(word.lower() in lower for word in ADDRESS_HINT_WORDS)
             or DOOR_NUMBER_RE.search(line)          # scenario 1
             or RURAL_ADDR_RE.search(line)           # scenario 3
             or STATE_SHORTCODE_PINCODE_RE.search(line)  # scenario 5
@@ -626,8 +754,10 @@ def extract_address(text: str) -> dict:
             if cleaned and len(cleaned) > 2:
                 address_parts.append(cleaned)
                 for cont in lines[i + 1: i + 4]:
-                    if _is_stop(cont) or _is_noise(cont):
+                    if _is_stop(cont):
                         break
+                    if _is_noise(cont):
+                        continue
                     if any(p in cont.lower() for p in PERSONAL_FIELDS):
                         break
                     cont_clean = _clean_line(cont)
@@ -653,9 +783,9 @@ def extract_address(text: str) -> dict:
     # ── STRATEGY 3: labeled address block anywhere in document ───────────────
     if not address_parts:
         for i, line in enumerate(lines):
-            if not re.search(r"(?i)\b(permanent\s+address|current\s+address|"
-                             r"residential\s+address|address)\b", line):
-                continue
+            if not ADDR_LABEL_RE.search(line):
+                 continue
+       
 
             inline = _clean_line(line)
             if inline and not _is_noise(inline) and len(inline) > 2:
@@ -673,7 +803,7 @@ def extract_address(text: str) -> dict:
                 if ":" in part and not _has_address_signal(part):
                     continue
                 part_clean = _clean_line(part)
-                if part_clean and len(part_clean) > 2:
+                if part_clean and len(part_clean) > 120:
                     address_parts.append(part_clean)
                 if len(address_parts) >= 4:
                     break
@@ -758,8 +888,8 @@ def extract_address(text: str) -> dict:
 
     full_address = ", ".join(unique_parts)
 
-    city    = extract_city(full_address)    or extract_city(text[:2000])
-    state   = extract_state(full_address)   or extract_state(text[:2000])
+    city    = extract_city(full_address) if full_address else extract_city(text[:2000])
+    state   = extract_state(full_address) if full_address else extract_state(text[:2000])
     pincode = extract_pincode(text)
 
     # ── Scenario 6: only after ALL 10 strategies are exhausted ───────────────
@@ -792,277 +922,3 @@ def extract_current_location(text: str) -> dict | None:
         "state":   state,
         "country": "India",
     }
-
-# ============================================================
-#  TEST HARNESS  —  python address_extractor.py
-# ============================================================
-
-if __name__ == "__main__":
-
-    SAMPLES = {
-
-        # ── original tests ────────────────────────────────────────────────────
-        "top_after_name": """
-RAMESH KUMAR
-No. 14, 2nd Cross, Indira Nagar, Bangalore - 560038, Karnataka
-ramesh@email.com | 9876543210
-OBJECTIVE
-Seeking a challenging position...
-""",
-        "top_with_label": """
-Priya Sharma
-Address: Flat 202, Sunrise Apartment, Sector 21, Noida, Uttar Pradesh - 201301
-Phone: 9988776655
-EDUCATION
-""",
-        "top_multiline": """
-Arun Venkatesh
-HR Manager | Chennai
-
-Plot 5, Anna Nagar West,
-Chennai, Tamil Nadu 600040
-arun.v@company.com
-EXPERIENCE
-""",
-        "bottom_personal_details": """
-Work Experience
-Company A - 2019-2022
-...
-
-Personal Details
-Name: Kiran Reddy
-Date of Birth: 12-05-1997
-Gender: Male
-Address: H.No 45, Srinagar Colony, Hyderabad, Telangana - 500073
-Marital Status: Single
-""",
-        "symbolic_prefix": """
-Sneha Patel
-Mobile: 9876543210
-Email: sneha@mail.com
-Address: B-12, Ashok Vihar, Phase II, Delhi - 110052
-""",
-        "pincode_only_line": """
-Vijay Mohan
-vijay@mail.com | 9123456780
-
-Vazhudavur Road, Puducherry 605010
-SKILLS
-""",
-        "state_no_pincode": """
-Manoj Gupta
-Sector 15, Rohini, New Delhi
-EXPERIENCE
-""",
-        "mixed_inline": """
-ANANYA SINGH | ananya@email.com | 9090909090 | Patna, Bihar
-SUMMARY
-""",
-        "permanent_address_bottom": """
-Technical Skills: Python, SQL
-Personal Details:
-Father Name: Mr. Suresh
-DOB: 15/08/1995
-Permanent Address: 22, Gandhi Street, Coimbatore, Tamil Nadu - 641001
-""",
-        "two_line_after_label": """
-Suresh Babu
-Current Address:
-Flat No. 3B, Green Valley Apartments
-Madhapur, Hyderabad - 500081
-Skills:
-""",
-        "native_place": """
-Divya Lakshmi
-Native Place: Tirunelveli, Tamil Nadu
-Currently residing in Bangalore
-divya@mail.com | 8888888888
-SKILLS
-""",
-        "arrow_symbol_address": """
-Ravi Shankar
-➢ Email: ravi@gmail.com
-➢ Phone: 9123456789
-➢ Address: Plot 22, New Colony, Guntur, Andhra Pradesh - 522001
-EDUCATION
-""",
-        "caps_address_in_personal_details": """
-John Mathew
-WORK EXPERIENCE
-Senior Developer at TCS - 2018-2023
-
-PERSONAL DETAILS
-ADDRESS: FLAT 4C, SUNRISE TOWERS, MG ROAD, KOCHI, KERALA - 682001
-DOB: 10/10/1990
-""",
-        "caps_address_in_header": """
-ANITA DESAI
-56,LAKE VIEW ROAD, BIHAR SHARIF, PATNA, BIHAR - 800014
-""",
-
-        # ── NEW scenario tests ────────────────────────────────────────────────
-
-        # Scenario 1: door number without any hint word
-        "scenario1_door_no_hint": """
-Ravi Kumar
-ravi@email.com | 9876543210
-12/27 Gandhi Nagar Ext, Salem, Tamil Nadu 636004
-OBJECTIVE
-""",
-        # Scenario 1b: just starts with a number-slash-number, no labels
-        "scenario1_bare_door": """
-Kavitha S
-kavitha@mail.com
-45/3, Lake View, Coimbatore 641045
-SKILLS
-""",
-
-        # Scenario 2: two empty pages (form-feed) after real content
-        "scenario2_empty_pages": (
-            "Santhosh Kumar\n"
-            "santhosh@mail.com | 9123456780\n"
-            "Permanent Address: 10, Rose Street, Trichy, Tamil Nadu - 620001\n"
-            "SKILLS\nPython\n"
-            "\f\n\n\n\n\n"   # blank page 1
-            "\f\n\n\n\n\n"   # blank page 2
-        ),
-
-        # Scenario 3: rural Bihar AT/PO/PS/DIST style
-        "scenario3_rural_bihar": """
-Rahul Tiwari
-rahul@mail.com | 9812345678
-AT :- PATBANDI TIWARI TOLA PO :- RATANMALA PS:- MAJHAULIA DIST :-WEST CHAMPARAN BIHAR , 845450
-OBJECTIVE
-""",
-
-        # Scenario 4: end-of-page personal details with short address
-        "scenario4_end_personal_usti": """
-Work Experience
-ABC Corp 2020-2023
-
-Personal Information
-Name: Amit Kumar
-DOB: 01/01/1995
-Address:-Usti,Baniyapur,Saran, Bihar
-Marital Status: Single
-""",
-
-        # Scenario 5: tabular layout with wide-spaced colon
-        "scenario5_tabular_tg": """
-Personal Information
-Name                                             : Suresh Reddy
-PermanentAddress                                 : Miryalguda, Nalgonda, TG- 508207
-DOB                                              : 15/06/1995
-""",
-
-        # Scenario 6: resume with absolutely no address
-        "scenario6_no_address": """
-Preethi R
-preethi@email.com | 9988776655
-OBJECTIVE
-Seeking a challenging role in software development.
-SKILLS
-Python, Java, SQL
-EDUCATION
-B.Tech Computer Science 2018-2022
-""",
-
-        # ── Deep-scan / strategy-10 stress tests ─────────────────────────────
-
-        # Address buried after multiple stop-word sections
-        "deep_buried_after_experience": """
-Arjun Mehta
-arjun@mail.com | 9988001122
-OBJECTIVE
-To obtain a challenging role.
-EDUCATION
-B.E. Mechanical, Anna University 2016-2020
-EXPERIENCE
-Infosys Ltd  2020-2023
-SKILLS
-AutoCAD, CATIA
-Personal Details
-Name: Arjun Mehta
-Date of Birth: 10/03/1997
-Address: 7, Nehru Street, Tambaram, Chennai, Tamil Nadu - 600045
-Marital Status: Single
-""",
-
-        # Address in declaration section at end (no label, just location line)
-        "deep_declaration_section": """
-Suman Das
-suman@mail.com
-WORK EXPERIENCE
-ABC Company 2018-2022
-EDUCATION
-MBA Finance 2016-2018
-DECLARATION
-I hereby declare that all the above information is true.
-Place: Kolkata, West Bengal
-Date: 01/04/2026
-""",
-
-        # Address only recognizable by pincode + continuation (no state/district)
-        "deep_pincode_continuation": """
-Vikram Nair
-vikram@email.com | 9812340000
-SUMMARY
-Experienced developer.
-SKILLS
-Java, Spring Boot
-EDUCATION
-B.Tech 2015-2019
-PERSONAL
-Flat 11B, Palm Grove Society
-Vasai Road West - 401202
-""",
-
-        # Address with no label, no pincode, but has hint word deep in doc
-        "deep_hint_word_only": """
-Meena Iyer
-meena@mail.com | 9123409876
-OBJECTIVE
-Seeking a position in HR.
-EXPERIENCE
-XYZ Corp 2019-2023
-SKILLS
-MS Office
-PERSONAL INFORMATION
-Name: Meena Iyer
-Gender: Female
-Locality: Velachery, Chennai
-""",
-
-        # Truly no address anywhere — deep scan must confirm nothing
-        "deep_truly_no_address": """
-Rohit Verma
-rohit@mail.com | 9000000001
-OBJECTIVE
-To work in a dynamic environment.
-SKILLS
-Python, Docker, Kubernetes
-EDUCATION
-B.Tech CSE 2014-2018
-EXPERIENCE
-Google 2018-2023
-""",
-    }
-
-    spacy_status = "spaCy loaded" if nlp else "spaCy NOT available (regex-only mode)"
-    print(f"\n[{spacy_status}]")
-    print("=" * 65)
-
-    for name, text in SAMPLES.items():
-        r = extract_address(text)
-        print(f"\n[{name}]")
-        print(f"  Address : {r['address']}")
-        print(f"  City    : {r['city']}")
-        print(f"  State   : {r['state']}")
-        print(f"  Pincode : {r['pincode']}")
-
-    print("\n" + "=" * 65)
-    print("\n[extract_current_location test]")
-    sample = "John Peter | john@mail.com | 9876543210 | Kochi, Kerala"
-    loc = extract_current_location(sample)
-    print(f"  Input  : {sample}")
-    print(f"  Result : {loc}")

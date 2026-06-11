@@ -1,7 +1,6 @@
 import re
-import spacy   
-import json    
-...
+from typing import List, Optional
+
 # ================= EDUCATION =================
 
 DEGREE_PATTERNS = {
@@ -11,16 +10,16 @@ DEGREE_PATTERNS = {
     "M.Tech": ["m.tech", "mtech", "master of technology"],
     "MCA":    ["mca", "master of computer applications"],
     "M.Sc":   ["m.sc", "msc", "master of science"],
-    "M.E":    ["master of engineering"],  # "m.e" removed — caught by BOUNDARY_ONLY with lookbehind
+    "M.E":    ["master of engineering"],
     "M.A":    ["m.a", "master of arts"],
- 
+
     # Undergraduate
-    "B.Tech": ["b.tech", "btech", "bachelor of technology"],
+    "B.Tech": ["b.tech", "btech", "B-tech", "bachelor of technology","b-tech","b tech"],
     "BCA":    ["bca", "bachelor of computer applications"],
     "B.Sc":   ["b.sc", "b.s.c", "bsc", "bachelor of science"],
-    "B.E":    ["bachelor of engineering"],  # "b.e" removed — caught by BOUNDARY_ONLY with lookbehind
+    "B.E":    ["bachelor of engineering","b.e", "b e", "b.e.", "b-e", "bachelorofengineering"],
     "B.A":    ["bachelor of arts"],
- 
+
     # Diploma specific (order matters — specific before generic)
     "Diploma (Electrical & Electronics)": [
         "diploma in electrical & electronics engineering",
@@ -74,10 +73,15 @@ DEGREE_PATTERNS = {
     ],
     # Generic diploma LAST — only catches bare "diploma" with no stream
     "Diploma": ["diploma"],
- 
+
     # ITI specific only
-    "ITI": ["iti (electrician)", "iti(electrician)", "iti electrician"],
- 
+    "ITI": ["iti (electrician)", "iti(electrician)", "iti electrician",
+            "iti (fitter)",      "iti(fitter)",      "iti fitter",
+            "iti (welder)",      "iti(welder)",      "iti welder",
+            "iti (mechanic)",    "iti(mechanic)",
+            "i.t.i","ITI", "I T I","I.T.I FITTER","I.T.I","i.t.i  fitter","iti",
+            ],
+
     # Standalone engineering streams -> B.E (only when no diploma keyword)
     "BE (Mechanical)_stream": [
         "mechanical engineering",
@@ -103,38 +107,37 @@ DEGREE_PATTERNS = {
         "civil engineering",
         "civil engg",
     ],
- 
+
     # School
     "Intermediate / 12th": [
         "intermediate", "12th", "hsc", "higher secondary",
         "plus two", "+2", "10+2", "pre-university", "junior college",
     ],
 }
- 
+
 STREAM_ALIAS = {
     "BE (Mechanical)_stream": "B.E",
     "BE (Electrical & Electronics)_stream": "B.E",
     "BE (ECE)_stream": "B.E",
     "BE (Civil)_stream": "B.E",
+    "B.Tech Electronics & Instrumentation_stream":  "B.Tech",
+    "B.E Mechanical Engineering_stream": "B.E"
 }
- 
+
 BOUNDARY_ONLY = {
     r"m\.tech": "M.Tech",
-    r"b\.tech": "B.Tech",
+    r"b[\s.]?\s*tech": "B.Tech",
     r"m\.e":    "M.E",
-    r"b\.e":    "B.E",
+    r"b\.e\.?": "B.E",
     r"m\.a":    "M.A",
     r"b\.a":    "B.A",
     r"m\.sc":   "M.Sc",
     r"b\.sc":   "B.Sc",
 }
- 
+
 PRIORITY = [
     "PhD", "MBA", "M.Tech", "MCA", "M.Sc", "M.E", "M.A",
     "B.Tech", "BCA", "B.Sc", "B.A",
-    # Specific Diploma subtypes ranked ABOVE B.E —
-    # a "diploma in X engineering" match is more specific than a bare stream keyword.
-    # B.E is still caught when NO diploma evidence exists (stream_ok path).
     "Diploma (Electrical & Electronics)",
     "Diploma (ECE)",
     "Diploma (Mechanical)",
@@ -142,73 +145,84 @@ PRIORITY = [
     "Diploma (Computer Science)",
     "Diploma (Textile Technology)",
     "Diploma",
-    # B.E falls here — only wins when no specific Diploma subtype matched
-    "B.E",
+    "B.E", "B.Tech",
     "ITI",
     "Intermediate / 12th",
     "10th / SSC",
 ]
- 
+
 EDUCATION_HEADINGS = [
     "academic profile", "educational qualification", "educational qualifications",
+    "academic qualifications",
     "education", "qualification", "qualifications", "qualification personal details",
     "academic background", "academic details", "basic academic credentials",
     "educational details", "academics",
 ]
- 
+
 PROFILE_HEADINGS = [
     "professional profile", "career objective", "objective",
     "summary", "profile", "about me", "professional summary",
 ]
- 
-# BUG FIX: Removed the `break` — must scan ALL patterns to find most specific.
-# Ordered most-specific first so the best match wins.
+
 NOSPACE_PATTERNS = [
-    ("diplomainmechanicalengineering",       "Diploma (Mechanical)"),
-    ("diplomainmechanical",                  "Diploma (Mechanical)"),
-    ("mechanicaldiploma",                    "Diploma (Mechanical)"),
-    ("d.m.e",                                "Diploma (Mechanical)"),
-    ("dme",                                  "Diploma (Mechanical)"),
-    ("diplomainelectricalandelectronicsengineering", "Diploma (Electrical & Electronics)"),
-    ("diplomainelectricalelectronicsengineering",    "Diploma (Electrical & Electronics)"),
-    ("diplomainelectricalengineering",       "Diploma (Electrical & Electronics)"),
-    ("diplomainelectrical",                  "Diploma (Electrical & Electronics)"),
-    ("diplomaineee",                         "Diploma (Electrical & Electronics)"),
-    ("diplomaelectrical",                    "Diploma (Electrical & Electronics)"),
-    ("eeediploma",                           "Diploma (Electrical & Electronics)"),
-    ("diplomainelectronicsandcommunication", "Diploma (ECE)"),
-    ("diplomainelectronicsengineering",      "Diploma (ECE)"),
-    ("diplomainece",                         "Diploma (ECE)"),
-    ("diplomaelectronics",                   "Diploma (ECE)"),
-    ("ecediploma",                           "Diploma (ECE)"),
-    ("diplomaincivilengineering",            "Diploma (Civil)"),
-    ("diplomaincivil",                       "Diploma (Civil)"),
-    ("civildiploma",                         "Diploma (Civil)"),
-    ("diplomaincomputerscience",             "Diploma (Computer Science)"),
-    ("btech",                                "B.Tech"),
-    ("bsc",                                  "B.Sc"),
-    ("bca",                                  "BCA"),
-    ("mtech",                                "M.Tech"),
-    ("mca",                                  "MCA"),
-    ("diploma",                              "Diploma"),
+    ("diplomainmechanicalengineering",                "Diploma (Mechanical)"),
+    ("diplomainmechanical",                           "Diploma (Mechanical)"),
+    ("mechanicaldiploma",                             "Diploma (Mechanical)"),
+    ("d.m.e",                                         "Diploma (Mechanical)"),
+    ("dme",                                           "Diploma (Mechanical)"),
+    ("diplomainelectricalandelectronicsengineering",  "Diploma (Electrical & Electronics)"),
+    ("diplomainelectricalelectronicsengineering",     "Diploma (Electrical & Electronics)"),
+    ("diplomainelectricalengineering",                "Diploma (Electrical & Electronics)"),
+    ("diplomainelectrical",                           "Diploma (Electrical & Electronics)"),
+    ("diplomaineee",                                  "Diploma (Electrical & Electronics)"),
+    ("diplomaelectrical",                             "Diploma (Electrical & Electronics)"),
+    ("eeediploma",                                    "Diploma (Electrical & Electronics)"),
+    ("diplomainelectronicsandcommunication",          "Diploma (ECE)"),
+    ("diplomainelectronicsengineering",               "Diploma (ECE)"),
+    ("diplomainece",                                  "Diploma (ECE)"),
+    ("diplomaelectronics",                            "Diploma (ECE)"),
+    ("ecediploma",                                    "Diploma (ECE)"),
+    ("diplomaincivilengineering",                     "Diploma (Civil)"),
+    ("diplomaincivil",                                "Diploma (Civil)"),
+    ("civildiploma",                                  "Diploma (Civil)"),
+    ("diplomaincomputerscience",                      "Diploma (Computer Science)"),
+    ("btech",                                         "B.Tech"),
+    ("bsc",                                           "B.Sc"),
+    ("bca",                                           "BCA"),
+    ("mtech",                                         "M.Tech"),
+    ("diploma",                                       "Diploma"),
+    ("b.e(mechanicalengineering)",   "B.E"),
+    ("b.e(mechanical)",              "B.E"),
+    ("b.e(electrical)",              "B.E"),
+    ("b.e(civil)",                   "B.E"),
+    ("b.e(ece)",                     "B.E"),
+    ("bachelorofengineering", "B.E"),
+    ("bacheloroftechnology", "B.Tech"),
+    ("masteroftechnology", "M.Tech"),
+    ("masterofengineering", "M.E"),
+    ("bacheloroftechnology", "B.Tech"),
+    ("btech", "B.Tech"),
+    ("i.t.ifitter",     "ITI"),
+    ("i.t.ielectrician","ITI"),
+    ("i.t.iwelder",     "ITI"),
+    ("i.t.imechanic",   "ITI"),
 ]
- 
- 
+
+
 def _normalize(text: str) -> str:
     text = text.lower()
     text = re.sub(r"[ \t]+", " ", text)
     return text
- 
- 
+
+
 def _dejunk(text: str) -> str:
     return re.sub(r"\s+", "", text.lower())
- 
- 
+
+
 def _join_lines(text: str) -> str:
-    """Replace newlines with spaces so multi-line phrases become matchable."""
     return re.sub(r"\n+", " ", text)
- 
- 
+
+
 def _has_bsc_variant(t_norm: str, t_joined: str, t_nospace: str) -> bool:
     pat = r"(?<![a-z0-9])b[\s.]*s[\s.]*c(?![a-z0-9])"
     return (
@@ -217,13 +231,9 @@ def _has_bsc_variant(t_norm: str, t_joined: str, t_nospace: str) -> bool:
         or "degree(bsc)" in t_nospace
         or "bsc" in t_nospace
     )
- 
- 
+
+
 def _has_diploma_evidence(t_norm: str, t_joined: str, t_nospace: str) -> bool:
-    """
-    Returns True if ANY diploma indicator is present, including
-    abbreviations like D.M.E / DME and split across lines.
-    """
     if "diploma" in t_norm or "diploma" in t_joined or "diploma" in t_nospace:
         return True
     if re.search(r"(?<![a-z0-9])d\.m\.e(?![a-z0-9])", t_norm):
@@ -233,25 +243,23 @@ def _has_diploma_evidence(t_norm: str, t_joined: str, t_nospace: str) -> bool:
     if "dme" in t_nospace:
         return True
     return False
- 
- 
-def _scan(text: str, stream_ok: bool = False, global_diploma: bool = False) -> str | None:
+
+
+def _scan(text: str, stream_ok: bool = False, global_diploma: bool = False) -> Optional[str]:
     t_norm    = _normalize(text)
-    # BUG FIX: t_joined joins lines so "DIPLOMA\n(ECE)" becomes "diploma (ece)"
     t_joined  = _normalize(_join_lines(text))
     t_nospace = _dejunk(text)
- 
-    found: set[str] = set()
- 
-    # Compute diploma evidence upfront (local + global)
+
+    found = set()
+
     diploma_present = global_diploma or _has_diploma_evidence(t_norm, t_joined, t_nospace)
- 
-    # Strong B.Sc recovery
+
     if _has_bsc_variant(t_norm, t_joined, t_nospace):
         found.add("B.Sc")
- 
-    # Pass 1: exact phrases — check BOTH t_norm and t_joined
-    # t_joined catches patterns split across lines e.g. "DIPLOMA\n(ECE)"
+
+    # FIX: removed the misplaced early-return inside this loop.
+    # It was firing before any other degree could be checked.
+    # "Diploma (Mechanical)" is already handled by DEGREE_PATTERNS patterns below.
     for degree, patterns in DEGREE_PATTERNS.items():
         if degree in STREAM_ALIAS and not stream_ok:
             continue
@@ -259,154 +267,144 @@ def _scan(text: str, stream_ok: bool = False, global_diploma: bool = False) -> s
             if p in t_norm or p in t_joined:
                 found.add(degree)
                 break
- 
-    # Pass 2: de-spaced scan — BUG FIX: NO break, scan ALL patterns
-    # so specific subtypes aren't shadowed by the generic "diploma" entry
-    best_nospace: str | None = None
+
+    best_nospace = None
     for pat, degree in NOSPACE_PATTERNS:
+        # Avoid false DME detection when ITI exists
+        if pat == "dme" and "ITI" in found:
+            continue    
         if pat in t_nospace:
-            # Keep going — last specific match in priority order wins
-            # But since list is ordered specific-first, take the FIRST match
             if best_nospace is None:
                 best_nospace = degree
-            # Stop only when we've found a specific (non-generic) match
             if degree != "Diploma":
                 break
     if best_nospace:
         found.add(best_nospace)
- 
-    # Recompute after Pass 1 & 2 — specific Diploma subtype may now be in found
+
+    if re.search(r'b[\.\-]e\s*\(', t_nospace.replace(" ", "")):
+        found.add("B.E")
+
     diploma_present = diploma_present or any(d.startswith("Diploma") for d in found)
- 
-    # Pass 3: boundary tokens — block M.E / B.E / M.A when diploma is present.
-    # Also block m.e when it appears as part of d.m.e (Diploma Mechanical Engg abbrev).
-    dme_present = bool(re.search(r"(?<![a-z0-9])d\.m\.e(?![a-z0-9])", t_norm)) or \
-                  bool(re.search(r"(?<![a-z0-9])d\.m\.e(?![a-z0-9])", t_joined)) or \
-                  "dme" in t_nospace
+
+    dme_present = (
+        bool(re.search(r"(?<![a-z0-9])d\.m\.e(?![a-z0-9])", t_norm))
+        or bool(re.search(r"(?<![a-z0-9])d\.m\.e(?![a-z0-9])", t_joined))
+        or "dme" in t_nospace
+    )
+
+    # Strip university/institute names to avoid false matches
+    text_for_scan = re.sub(
+        r'\b(?:university|institute|college|board|deemed|from)\b.*',
+        '', t_norm
+    )
+
+    text_for_iti = re.sub(
+    r'\b(?:university|institute|college|board|deemed|from|private|school|polytechnic)\b.*',
+    '', t_norm
+  )
+
     for pattern, degree in BOUNDARY_ONLY.items():
         if diploma_present and degree in {"M.E", "B.E", "M.A"}:
             continue
-        # Extra guard: don't let m.e fire when it's part of d.m.e
         if dme_present and degree == "M.E":
             continue
-        if re.search(r"(?<![a-z0-9.])" + pattern + r"(?![a-z0-9.])", t_norm):
+        if re.search(r"(?<![a-z0-9.])" + pattern + r"(?![a-z0-9.])", text_for_scan):
             found.add(degree)
- 
-    # Stream promotion: only when absolutely no diploma evidence anywhere
+
     if stream_ok and not diploma_present:
-        if re.search(
-            r"\b(mechanical|civil|electrical|electronics)\s+engineering\b", t_norm
-        ):
+        if re.search(r"\b(mechanical|civil|electrical|electronics)\s+engineering\b", t_norm):
             found.add("B.E")
         elif re.search(r"\b(ece|eee)\b", t_norm):
             found.add("B.E")
- 
-    # Resolve stream aliases
-    resolved: set[str] = {STREAM_ALIAS.get(d, d) for d in found}
- 
-    # ITI: only if nothing stronger found
+
+    if re.search(r'i\.?t\.?i', t_norm, re.IGNORECASE) and re.search(r'\b(fitter|electrician|welder|mechanic)\b',
+        t_norm,
+        re.IGNORECASE
+        ):
+        found.add("ITI")
+    
+    resolved = {STREAM_ALIAS.get(d, d) for d in found}
+
     has_non_iti = any(d != "ITI" for d in resolved)
     if not has_non_iti:
         if re.search(
-            r"\biti\b(?!\s*(college|polytechnic|school|university|institute|centre|center))",
+            r"\bi\.?t\.?i\.?\b(?!\s*(college|polytechnic|school|university|institute))",
             t_norm
         ):
+            if re.search(
+                r"\bi\.?t\.?i\.?\b(?!\s*(college|polytechnic|school|university|institute|private))",
+                text_for_iti   # ← was t_norm
+                ):
+                    resolved.add("ITI")           
+            
+        elif any(x in t_norm or x in t_joined for x in DEGREE_PATTERNS.get("ITI", [])):
             resolved.add("ITI")
-        elif any(x in t_norm for x in DEGREE_PATTERNS.get("ITI", [])):
-            resolved.add("ITI")
- 
+
     if not resolved:
+        if "bachelor of engineering" in t_norm:
+            return "B.E"
+        if "bachelorofengineering" in t_nospace:
+            return "B.E"
+        if "bachelor of technology" in t_norm:
+            return "B.Tech"
+        if "bacheloroftechnology" in t_nospace:
+            return "B.Tech"
         return None
- 
+
     for degree in PRIORITY:
         if degree in resolved:
             return degree
     return next(iter(resolved))
- 
- 
-def _get_section(lines: list[str], headings: list[str], window: int = 25) -> list[str]:
+
+
+def _get_section(lines: List[str], headings: List[str], window: int = 25) -> List[str]:
     stripped_headings = [re.sub(r"\s+", "", h) for h in headings]
     for i, line in enumerate(lines):
-        # Strip trailing punctuation so "academic profile:" matches "academic profile"
         line_s = re.sub(r"[:\-_*]+$", "", line.strip()).strip()
         line_ns = re.sub(r"\s+", "", line_s)
         if (any(h in line_s for h in headings) or
                 any(h in line_ns for h in stripped_headings)):
-            return lines[i + 1: i + 1 + window]
+            section = []
+            # FIX: the stop-word check and break were outside the for loop
+            # due to wrong indentation — the section never stopped at headings
+            # like "Experience" or "Skills". Fixed indentation below.
+            for part in lines[i + 1:]:
+                l = part.lower().strip()
+                if l in ["experience", "languages", "skills", "projects",
+                         "personal details", "job profile", "declaration"]:
+                    break
+                section.append(part)
+                if len(section) >= window:
+                    break
+            return section
     return []
- 
- 
+
+
 def extract_education(text: str) -> str:
-    t_norm   = _normalize(text)
-    t_joined = _normalize(_join_lines(text))
+    t_norm    = _normalize(text)
+    t_joined  = _normalize(_join_lines(text))
     t_nospace = _dejunk(text)
-    lines    = t_norm.splitlines()
- 
-    # Check diploma evidence across the FULL document first
+    lines     = t_norm.splitlines()
+
     global_diploma = _has_diploma_evidence(t_norm, t_joined, t_nospace)
- 
+
     # 1) Education / qualification section
-    edu_lines = _get_section(lines, EDUCATION_HEADINGS, window=35)
+    edu_lines = _get_section(lines, EDUCATION_HEADINGS, window=10)
     if edu_lines:
         degree = _scan("\n".join(edu_lines), stream_ok=True, global_diploma=global_diploma)
         if degree:
             return degree
- 
+
     # 2) Profile / summary section
     profile_lines = _get_section(lines, PROFILE_HEADINGS, window=12)
     if profile_lines:
         degree = _scan("\n".join(profile_lines), stream_ok=False, global_diploma=global_diploma)
         if degree:
             return degree
- 
+
     # 3) Full text fallback
     degree = _scan(t_norm, stream_ok=True, global_diploma=global_diploma)
     if degree:
         return degree
- 
+
     return "Intermediate / 12th"
- 
- 
-if __name__ == "__main__":
-    tests = [
-        # Original tests
-        ("Qualification Personal Details\nYear of Passing 2012 Mechanical Engineering", "B.E"),
-        ("Education\nDiploma in Mechanical Engineering", "Diploma (Mechanical)"),
-        ("Education\nDegree (B.S.C)(Chemistry) :-2014 pass out (52%)", "B.Sc"),
-        ("Education\nDip lo m a in M e chanical Eng ine ering (p asse d o ut- 2 00 6)", "Diploma (Mechanical)"),
-        ("BASICACADEMICCREDENTIALS\nNon-Matric", "Intermediate / 12th"),
-        ("Education\nDIPLOMA\n(ECE)", "Diploma (ECE)"),
-        ("Education\nM.A in Hindi Language", "M.A"),
-        ("QUALIFICATION PERSONAL DETAILS\nYear of Passing 2012 Mechanical Engineering\nInstitution: Govt ITI College", "B.E"),
-        ("Education\nElectrical Engineering", "B.E"),
-        ("Education\nElectronics Engineering", "B.E"),
-        ("Education\nDiploma in Electrical Engineering", "Diploma (Electrical & Electronics)"),
-        ("Education\nDiploma in ECE", "Diploma (ECE)"),
-        ("Work Experience\n5 years in marketing", "Intermediate / 12th"),
- 
-        # Your 4 failing cases
-        ("Academic Profile\nDiploma in Electrical & Electronics Engineering", "Diploma (Electrical & Electronics)"),
-        ("ACADEMIC PROFILE:\nD.M.E", "Diploma (Mechanical)"),
-        ("EDUCATIONAL DETAILS:\nDIPLOMA\n(ECE)", "Diploma (ECE)"),
-        ("Professional Profile\nHardworking EEE Diploma fresher", "Diploma (Electrical & Electronics)"),
- 
-        # Extra edge cases
-        ("Education\nD.M.E", "Diploma (Mechanical)"),
-        ("Education\nDME 2018", "Diploma (Mechanical)"),
-        ("Education\nDiploma (Mechanical)", "Diploma (Mechanical)"),
-        ("Education\nDiploma ECE", "Diploma (ECE)"),
-        ("Education\nDiploma Electrical", "Diploma (Electrical & Electronics)"),
-        ("Education\nEEE Diploma", "Diploma (Electrical & Electronics)"),
-    ]
- 
-    pass_count, fail_count = 0, 0
-    for text, expected in tests:
-        got = extract_education(text)
-        if got == expected:
-            pass_count += 1
-            print(f"✓ got={got!r:40s} input={text[:60]!r}")
-        else:
-            fail_count += 1
-            print(f"✗ expected={expected!r:32s} got={got!r:24s} input={text[:60]!r}")
- 
-    print(f"\nResults: {pass_count} passed, {fail_count} failed, total={len(tests)}")

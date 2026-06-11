@@ -19,7 +19,7 @@ from app.extractor import (
     extract_job_title
 )
 from app.experience_calc import calculate_experience
-from app.location_address import extract_current_location, extract_address
+from app.address_extractor import extract_current_location, extract_address
 from app.job_title_cache import load_job_titles
 
 
