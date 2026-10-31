@@ -36,6 +36,7 @@ from app_v2.extractor import extract
 from app_v2.job_titles import get_departments, get_job_titles, job_titles_live
 from app_v2.schemas import ReviewSubmit, build_corrections
 from app_v2.store import get_store
+from app_v2.cities import all_cities, cities_for  # city dropdown (added)
 from app_v2.textract import file_to_text
 from app_v2.ui import HTML as _UI_HTML
 
@@ -168,6 +169,7 @@ def options(refresh: bool = Query(False, description="Force re-fetch of job titl
         "states": C.STATES,
         "countryCodes": C.COUNTRY_CODE_OPTIONS,
         "dialCodes": C.DIAL_CODES,
+        "cities": all_cities(),  # city dropdown (added)
     }
 
 
@@ -407,3 +409,12 @@ def stats(_: bool = Admin):
 @app.get(f"{API_PREFIX}/", response_class=HTMLResponse, include_in_schema=False)
 def frontend():
     return _UI_HTML.replace("__API_PREFIX__", API_PREFIX)
+
+
+# ── City dropdown (added) ────────────────────────────────────────────────────
+
+@app.get(f"{API_PREFIX}/cities", tags=["Options"], summary="Cities for the City dropdown")
+def city_options(country: str = Query("India"), state: str = Query("", description="Leave empty for all states")):
+    if state:
+        return {"country": country, "state": state, "cities": cities_for(country, state)}
+    return {"country": country, "states": cities_for(country)}

@@ -620,6 +620,13 @@ def extract(text: str) -> tuple[dict, dict]:
     f_pan = extract_pan(text)
     f_aad = extract_aadhaar(text, phone_digits)
 
+    # city dropdown (added): map the extracted city to the City dropdown spelling
+    try:
+        from app_v2.cities import normalize_location_fields
+        normalize_location_fields((f_cur, f_addr), country)
+    except Exception as exc:  # never break extraction
+        log.warning("city normalisation skipped: %s", exc)
+
     # fill country defaults so the dropdowns are never blank when we know the country
     for f in (f_cur, f_addr):
         if isinstance(f["value"], dict) and not f["value"].get("country") and country:
