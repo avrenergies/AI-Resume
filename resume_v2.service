@@ -1,0 +1,16 @@
+[Unit]
+Description=AVR Resume Extractor v2 (review & store)
+After=network.target
+
+[Service]
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/resume_v2
+EnvironmentFile=/opt/resume_v2/.env
+Environment=V1_APP_PATH=/opt/resume_v2
+ExecStart=/opt/resume_v2/venv/bin/uvicorn app_v2.main:app --host 127.0.0.1 --port 8001 --workers 2 --timeout-keep-alive 30
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
