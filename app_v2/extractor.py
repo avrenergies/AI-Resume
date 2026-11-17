@@ -25,7 +25,7 @@ from typing import Any
 
 from app_v2 import constants as C
 from app_v2.config import V1_APP_PATH
-from app_v2.job_titles import get_job_titles, match_job_title
+from app_v2.job_titles import divisions_for_title, get_divisions, get_job_titles, match_job_title
 
 log = logging.getLogger("resume_v2.extractor")
 
@@ -69,6 +69,18 @@ def v1() -> dict:
         log.warning("v1 extractors unavailable (%s) — using v2 built-in extractors only", exc)
         _v1_cache = {}
     return _v1_cache
+
+
+def _guard(fn, text: str, iso: bool = False) -> dict:
+    """Run a field extractor; any error -> empty descriptor (never breaks /extract)."""
+    try:
+        return fn(text)
+    except Exception as exc:
+        log.warning("%s failed: %s", fn.__name__, exc)
+        d = F()
+        if iso:
+            d["iso"] = ""
+        return d
 
 
 def _safe(fn, *args, default=None):
@@ -359,6 +371,64 @@ def extract_job_title(text: str, years: float | None) -> dict:
     return d
 
 
+# ── division ─────────────────────────────────────────────────────────────────
+
+def _division_keyword_scores(text: str) -> dict[str, int]:
+    """{division_name: keyword hits} for the live divisions that have a keyword rule."""
+    low = text.lower()
+    rules = {k.lower(): v for k, v in C.DIVISION_KEYWORDS.items()}
+    scores: dict[str, int] = {}
+    for d in get_divisions():
+        pat = rules.get(re.sub(r"\s+", " ", d["name"]).strip().lower())
+        if pat:
+            n = len(re.findall(pat, low))
+            if n:
+                scores[d["name"]] = n
+    return scores
+
+
+def extract_division(text: str, job: dict) -> dict:
+    """
+    Division (O&M / Ferro Alloy / Cokeoven ...) for the review form.
+      1. the extracted job title belongs to exactly one division → that division
+      2. the title is in several divisions (e.g. "Safety Officer") → resume keywords decide
+      3. no usable title → resume keywords alone (coke oven, ferro alloy, power plant ...)
+    """
+    title = job.get("value") if job.get("status") != MISSING else ""
+    job_conf = float(job.get("confidence") or 0)
+    by_title = divisions_for_title(title) if title else []
+    kw = _division_keyword_scores(text)
+    ids = {d["name"]: d["id"] for d in get_divisions()}
+
+    def out(name: str, conf: float, src: str, candidates: list[str]) -> dict:
+        d = F(name, conf, src)
+        d["divisionId"] = ids.get(name)
+        d["candidates"] = candidates
+        return d
+
+    if len(by_title) == 1:
+        name = by_title[0]["name"]
+        conf = min(0.95, max(job_conf, 0.5))
+        others = {k: v for k, v in kw.items() if k != name}
+        if others and max(others.values()) >= 2 and kw.get(name, 0) == 0:
+            conf = min(conf, 0.6)  # resume text points elsewhere — let the reviewer check
+        return out(name, conf, f"job title '{title}'", [name])
+    if len(by_title) > 1:
+        names = [d["name"] for d in by_title]
+        ranked = sorted(names, key=lambda n: -kw.get(n, 0))
+        best = ranked[0]
+        if kw.get(best, 0) > 0 and kw.get(best, 0) > kw.get(ranked[1], 0):
+            return out(best, min(0.85, max(job_conf, 0.5)), f"job title '{title}' + resume keywords", names)
+        return out(best, 0.45, f"job title '{title}' is in {len(names)} divisions", names)
+    if kw:
+        ranked = sorted(kw, key=lambda n: -kw[n])
+        best, hits = ranked[0], kw[ranked[0]]
+        if len(ranked) > 1 and kw[ranked[1]] == hits:
+            return out(best, 0.4, "resume keywords (tie)", ranked)
+        return out(best, min(0.75, 0.45 + 0.1 * hits), "resume keywords", ranked)
+    return out("", 0, "none", [])
+
+
 # ── experience ───────────────────────────────────────────────────────────────
 
 def extract_experience(text: str) -> tuple[float | None, dict]:
@@ -594,6 +664,25 @@ def extract_aadhaar(text: str, phones: list[str]) -> dict:
     return F()
 
 
+# ── date of birth + marital status ───────────────────────────────────────────
+
+def extract_date_of_birth(text: str) -> dict:
+    """DD/MM/YYYY from a 'Date of Birth' / 'DOB' label (never from job or education dates).
+    Descriptor also carries `iso` (YYYY-MM-DD) for date pickers."""
+    from app_v2.personal import extract_dob
+    value, conf, src, iso = extract_dob(text)
+    d = F(value, conf, src)
+    d["iso"] = iso
+    return d
+
+
+def extract_marital_status(text: str) -> dict:
+    """One of MARITAL_STATUS_OPTIONS from a 'Marital Status' label."""
+    from app_v2.personal import extract_marital
+    value, conf, src = extract_marital(text)
+    return F(value, conf, src)
+
+
 # ── main entry ───────────────────────────────────────────────────────────────
 
 def extract(text: str) -> tuple[dict, dict]:
@@ -609,10 +698,13 @@ def extract(text: str) -> tuple[dict, dict]:
     emails, f_emails = extract_emails(text)
     f_name = extract_name(text, emails)
     f_surname = extract_surname(f_name["value"])
+    f_dob = _guard(extract_date_of_birth, text, iso=True)
+    f_ms = _guard(extract_marital_status, text)
     f_phones = extract_phones(text, country)
     phone_digits = [p["mobileNumber"] for p in f_phones["value"]] if isinstance(f_phones["value"], list) else []
     years, f_exp = extract_experience(text)
     f_job = extract_job_title(text, years)
+    f_div = extract_division(text, f_job)
     f_edu = extract_education(text)
     f_cert = extract_certificates(text)
     f_cur = extract_current_location(text, country, c_conf)
@@ -635,8 +727,9 @@ def extract(text: str) -> tuple[dict, dict]:
                 f.update(status=LOW, confidence=round(0.4 * c_conf, 2), source="country detection")
 
     fields = {
-        "fullName": f_name, "surname": f_surname, "emails": f_emails, "mobileNumbers": f_phones,
-        "jobTitle": f_job, "yearsOfExperience": f_exp, "educationQualification": f_edu,
+        "fullName": f_name, "surname": f_surname, "dateOfBirth": f_dob, "maritalStatus": f_ms,
+        "emails": f_emails, "mobileNumbers": f_phones,
+        "division": f_div, "jobTitle": f_job, "yearsOfExperience": f_exp, "educationQualification": f_edu,
         "certificates": f_cert, "currentWorkLocation": f_cur, "permanentAddress": f_addr,
         "pan": f_pan, "aadhar": f_aad,
     }

@@ -5,6 +5,17 @@ extractor to normalise values so they always match a dropdown entry.
 from __future__ import annotations
 
 # ── Experience buckets (exactly what the UI dropdown shows) ──────────────────
+# Marital Status dropdown + the words resumes use for each option (matched case-insensitively)
+MARITAL_STATUS_OPTIONS = ["Single", "Married", "Divorced", "Widowed", "Separated"]
+MARITAL_STATUS_ALIASES = {
+    "single": "Single", "unmarried": "Single", "un-married": "Single", "un married": "Single",
+    "bachelor": "Single", "spinster": "Single", "not married": "Single",
+    "married": "Married",
+    "divorced": "Divorced", "divorcee": "Divorced", "divorce": "Divorced",
+    "widowed": "Widowed", "widow": "Widowed", "widower": "Widowed",
+    "separated": "Separated",
+}
+
 EXPERIENCE_BUCKETS = ["Fresher", "0-1 years", "1-3 years", "3-5 years", "5-10 years", "10+ years"]
 
 
@@ -251,7 +262,92 @@ COUNTRY_CODE_OPTIONS = sorted({v for v in DIAL_CODES.values()}, key=lambda s: (l
 
 # Fields the review form sends. Used for diffing extracted vs reviewed.
 FIELD_KEYS = [
-    "fullName", "surname", "emails", "mobileNumbers",
-    "jobTitle", "yearsOfExperience", "educationQualification", "certificates",
+    "fullName", "surname", "dateOfBirth", "maritalStatus", "emails", "mobileNumbers",
+    "division", "jobTitle", "yearsOfExperience", "educationQualification", "certificates",
     "currentWorkLocation", "permanentAddress", "pan", "aadhar",
 ]
+
+
+# ── Divisions (Division → Department → Job Title) ────────────────────────────
+# Live source: GET {DIVISION_API} and GET {JOB_TITLE_API}. The snapshot below
+# (taken from api.avrenergies.com on 2026-10-01) is used ONLY when the live
+# API is unreachable, so the Division dropdown is never empty.
+DIVISIONS_FALLBACK = [
+    {"id": 1, "name": "O&M"},
+    {"id": 2, "name": "Ferro Alloy"},
+    {"id": 3, "name": "Cokeoven"},
+]
+
+DEPARTMENTS_FALLBACK = [
+    {"id": 1, "name": "HR Team", "divisionId": 1, "jobTitles": ["HR Executive", "HR Manager"]},
+    {"id": 2, "name": "Finance Team", "divisionId": 1, "jobTitles": ["Finance Executive"]},
+    {"id": 3, "name": "Power Plant O&M", "divisionId": 1, "jobTitles": [
+        "Site Manager", "Safety Officer", "Admin / Store Keeper", "Operations Manager", "Plant Manager"]},
+    {"id": 8, "name": "nigeria", "divisionId": 1, "jobTitles": ["Automation Engineer"]},
+    {"id": 6, "name": "Power Plant Operations", "divisionId": 1, "jobTitles": [
+        "AHP Operator", "Field Opertor", "Process Operator", "CHP Operator", "FHS Operator",
+        "Turbine DCS Operator", "Turbine Field Operator", "Shift Incharge", "Boiler DCS Operator",
+        "Boiler Field Operator"]},
+    {"id": 9, "name": "Battery", "divisionId": 3, "jobTitles": [
+        "Charging Cum Pusher Car - F/M", "Quenching Car Opperator", "Charging Cum Pusher Car Opperator",
+        "Coke Guide Car Operator", "Coke Guide Car - F/M", "Stamping Station Opperator",
+        "Coal Spillage Cleaning - Stamping", "Process Control Operator", "Temperature Recorder",
+        "Oven Top-Up and Keep"]},
+    {"id": 10, "name": "Battery Anchorge", "divisionId": 3, "jobTitles": ["Fitter", "Mechanical Helpers"]},
+    {"id": 12, "name": "Refractory Maintenance", "divisionId": 3, "jobTitles": ["Mason", "Mason Healper"]},
+    {"id": 15, "name": "Overall Plant", "divisionId": 3, "jobTitles": [
+        "Site Incharge", "Shift Supervisor", "Safety Officer"]},
+    {"id": 5, "name": "Water Treatment Plant", "divisionId": 1, "jobTitles": [
+        "WTP Incharge", "DM Operator", "DM Chemist", "WTP Chemist", "Senior Chemist", "WTP Operator",
+        "RO Plant Chemist", "RO plant Operator"]},
+    {"id": 7, "name": "Others", "divisionId": 1, "jobTitles": [
+        "Control Instrumentation", "Computer Science and Engineering", "Control Room Operator",
+        "Bull Driver", "O&M Engineer", "Bagasse Operator", "Cooling Tower Operator",
+        "Commissioning Engineer - Turbine", "IT Admin", "Fresher", "Admin", "Gas Plant  Operator",
+        "Sandblasting Operator", "Maintenance Engineer"]},
+    {"id": 13, "name": "Mechanical Maintenance", "divisionId": 3, "jobTitles": [
+        "Fitter", "Hydraulic Fitter", "Welder", "Cutter", "Rigger", "Assistant Helper",
+        "Millwright Fitter", "Storekeeper"]},
+    {"id": 4, "name": "Power Plant Maintenance", "divisionId": 1, "jobTitles": [
+        "Mechanical Rigger", "Electrical/Instrumentation Incharge", "Mill wright Fitter",
+        "Mechanical Helper", "Mechanical Incharge", "Mechanical Technician", "Electrical Technician",
+        "E&I  Engineer", "Instrumentation Engineer", "Instrumentation Technician", "Electrical Engineer",
+        "Mechanical Welder", "Mechanical Engineer", "Mechanical Fitter", "IBR Welder", "Foreman"]},
+    {"id": 14, "name": "E I & A - Maintenance", "divisionId": 3, "jobTitles": [
+        "Senior Technician", "Technician", "Helper"]},
+    {"id": 11, "name": "Coal & Coke  Handling System", "divisionId": 3, "jobTitles": [
+        "Conveyor Optimization", "Coal Yard Supervosior", "Ground Hoppers Helper",
+        "Coal Blending Silo System", "BM-3 to Crusher Building", "BM-4 to Mixter Building", "Coal Tower",
+        "WHARF (OPT)", "WHARF Helper", "CONVEYOR (OPT)", "Coke Cutter and Primary Screen",
+        "Coke Secondary Screening", "Coke Bunker Discharge"]},
+    {"id": 19, "name": "Heavy Earth Moving Machinery", "divisionId": 2, "jobTitles": [
+        "Forklift (Rise)", "Raw Mtrls Feeding (Oprt)", "Pay Loaders & JCB", "Excavators",
+        "Excavators (Breaker)", "Bobcat", "Forklift (F/C Oprt)"]},
+    {"id": 16, "name": "Production", "divisionId": 2, "jobTitles": [
+        "Tapping Helpers", "Deck Helpers", "Paste Feeding Helpers", "Laddle Clearing Helpers",
+        "Ground Hopper", "Day Bin Feeding Supervisor", "3rd Floor F/C Hopper Feeding Helpers",
+        "Production Head", "Raw Materials Helper", "Record Keeper", "Yard Supervsior", "Dy Managers",
+        "Raw Materials Supervisors - I/C", "Shift In Charge Mechanical", "Control Room Operator",
+        "Shift In Charge Production", "Tapper", "Crane Operators", "Forklift Operators"]},
+    {"id": 21, "name": "Material Handling", "divisionId": 2, "jobTitles": [
+        "Test", "Supervisors", "Helpers", "Stores Unskilled Helpers"]},
+    {"id": 20, "name": "Site Admin & HR", "divisionId": 2, "jobTitles": ["HR", "Admin", "Safety"]},
+    {"id": 17, "name": "Mechanical", "divisionId": 2, "jobTitles": [
+        "Welders", "Unskilled Helpers", "Skilled Helpers", "Head", "Fitters", "Shift In Charge Mechanical"]},
+    {"id": 18, "name": "Electrical", "divisionId": 2, "jobTitles": [
+        "Head", "Shift Electricians", "Electrical Helpers", "Shift In Charge Electrical"]},
+]
+
+# Resume keywords that point to a division (used to pick the division when the
+# job title is missing or exists in more than one division, e.g. "Safety Officer").
+# Keys are matched case-insensitively against the live division names.
+DIVISION_KEYWORDS = {
+    "o&m": r"power\s*plant|power\s*station|\bboiler\b|\bturbine\b|\bo\s*&\s*m\b|operation\s*(?:and|&)\s*maintenance|"
+           r"\bcpp\b|captive power|thermal|\bafbc\b|\bcfbc\b|cogen|sugar|\bwtp\b|\bdm plant\b|\b\d+\s*mw\b|"
+           r"\bstg\b|\bbtg\b|\bchp\b|\bahp\b|biomass",
+    "ferro alloy": r"ferro[\s\-]*alloys?|ferro[\s\-]*(?:silicon|manganese|chrome)|silico[\s\-]*manganese|"
+                   r"submerged arc furnace|\bsaf\b|smelt|\btapping\b|\btapper\b|\bladd?le\b|electrode paste",
+    "cokeoven": r"coke[\s\-]*oven|\bcoking\b|met(?:allurgical)?\s*coke|pusher car|quench|coke guide|"
+                r"stamping station|coal tower|coke (?:cutter|screen|bunker)|\bcoke plant\b|by[\s\-]*product plant|"
+                r"refractory",
+}
