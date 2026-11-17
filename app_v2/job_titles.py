@@ -1,10 +1,18 @@
 """
-Job-title dropdown source.
+Job-title + division dropdown source.
 
-get_job_titles()  → live list from the AVR API (cached JOB_TITLE_TTL seconds),
-                    merged with the built-in fallback so the dropdown is never empty.
-match_job_title() → fuzzy-map a raw phrase ("Instrumental Technician") to the
-                    closest dropdown entry ("Instrumentation Technician").
+AVR hierarchy:  Division → Department → Job Title
+    GET {DIVISION_API}   → [{"id": 1, "name": "O&M"}, ...]
+    GET {JOB_TITLE_API}  → [{"id", "name", "divisionId", "jobTitles": [{"id", "name"}]}, ...]
+
+get_job_titles()      → flat list of every job title (live, cached JOB_TITLE_TTL seconds),
+                        merged with the built-in fallback list so the dropdown is never empty.
+get_departments()     → departments with divisionId / divisionName and their job titles.
+get_divisions()       → [{"id", "name", "jobTitles": [...], "departments": [...]}]
+match_job_title()     → fuzzy-map a raw phrase ("Instrumental Technician") to the
+                        closest dropdown entry ("Instrumentation Technician").
+divisions_for_title() → which division(s) a job title belongs to.
+resolve_division()    → canonical division {"id", "name"} for a name typed/selected by the UI.
 """
 from __future__ import annotations
 
@@ -14,12 +22,14 @@ import threading
 import time
 
 from app_v2 import constants as C
-from app_v2.config import JOB_TITLE_API, JOB_TITLE_TTL
+from app_v2.config import DIVISION_API, JOB_TITLE_API, JOB_TITLE_TTL
 
 log = logging.getLogger("resume_v2.job_titles")
 
+_RETRY_AFTER_FAIL = 60  # seconds before re-trying the AVR API after a failure
+
 _lock = threading.Lock()
-_cache: dict = {"titles": [], "departments": [], "fetched": 0.0, "live": False}
+_cache: dict = {"titles": [], "departments": [], "divisions": [], "fetched": 0.0, "live": False}
 
 _SYNONYMS = [
     (r"\binstrumental\b", "instrumentation"),
@@ -33,48 +43,151 @@ _SYNONYMS = [
 ]
 
 
-def _fetch_live() -> tuple[list[str], list[dict]]:
+def _key(s: str) -> str:
+    """Case/whitespace-insensitive key ("E&I  Engineer" == "e&i engineer")."""
+    return re.sub(r"\s+", " ", (s or "")).strip().lower()
+
+
+# ── fetching ─────────────────────────────────────────────────────────────────
+
+def _fetch_departments() -> list[dict]:
     import requests
     r = requests.get(JOB_TITLE_API, timeout=6)
     r.raise_for_status()
     data = r.json()
-    titles: list[str] = []
     departments: list[dict] = []
     for dept in data.get("data", []) or []:
-        d_titles = [j["name"].strip() for j in dept.get("jobTitles", []) or [] if j.get("name")]
-        departments.append({"name": dept.get("name", ""), "jobTitles": d_titles})
-        titles.extend(d_titles)
-    return titles, departments
+        titles = [j["name"].strip() for j in dept.get("jobTitles", []) or [] if j.get("name") and j["name"].strip()]
+        departments.append({"id": dept.get("id"), "name": (dept.get("name") or "").strip(),
+                            "divisionId": dept.get("divisionId"), "jobTitles": titles})
+    return departments
 
+
+def _fetch_divisions() -> list[dict]:
+    import requests
+    r = requests.get(DIVISION_API, timeout=6)
+    r.raise_for_status()
+    data = r.json()
+    return [{"id": d.get("id"), "name": (d.get("name") or "").strip()}
+            for d in data.get("data", []) or [] if d.get("id") is not None and (d.get("name") or "").strip()]
+
+
+def _build(departments: list[dict], divisions: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Attach divisionName to departments; build division → departments/jobTitles tree."""
+    names = {d["id"]: d["name"] for d in C.DIVISIONS_FALLBACK}
+    names.update({d["id"]: d["name"] for d in divisions})
+    order = [d["id"] for d in divisions] or [d["id"] for d in C.DIVISIONS_FALLBACK]
+    for dep in departments:
+        if dep.get("divisionId") is not None and dep["divisionId"] not in order:
+            order.append(dep["divisionId"])
+
+    tree: dict = {}
+    for div_id in order:
+        tree[div_id] = {"id": div_id, "name": names.get(div_id, f"Division {div_id}"),
+                        "jobTitles": [], "departments": []}
+    out_deps = []
+    for dep in departments:
+        div_id = dep.get("divisionId")
+        dep = dict(dep, divisionName=names.get(div_id, f"Division {div_id}") if div_id is not None else "")
+        out_deps.append(dep)
+        if div_id is None:
+            continue
+        node = tree[div_id]
+        node["departments"].append({"id": dep.get("id"), "name": dep["name"], "jobTitles": list(dep["jobTitles"])})
+        seen = {_key(t) for t in node["jobTitles"]}
+        for t in dep["jobTitles"]:
+            if _key(t) not in seen:
+                node["jobTitles"].append(t)
+                seen.add(_key(t))
+    return out_deps, [tree[i] for i in order]
+
+
+def _refresh(force: bool = False) -> None:
+    """Fill the cache (called under _lock)."""
+    fresh = (time.time() - _cache["fetched"]) < JOB_TITLE_TTL
+    if _cache["titles"] and fresh and not force:
+        return
+    live_ok = True
+    try:
+        departments = _fetch_departments()
+        if not departments:
+            raise ValueError("empty department list")
+    except Exception as exc:
+        log.warning("job-title API unavailable (%s) — using built-in division snapshot", exc)
+        departments = [dict(d) for d in C.DEPARTMENTS_FALLBACK]
+        live_ok = False
+    try:
+        divisions = _fetch_divisions()
+    except Exception as exc:
+        log.warning("division API unavailable (%s) — using built-in division names", exc)
+        divisions = []  # department titles may still be live; names come from the snapshot
+    departments, tree = _build(departments, divisions)
+
+    merged: list[str] = []
+    seen: set[str] = set()
+    for t in [t for d in departments for t in d["jobTitles"]] + C.JOB_TITLE_FALLBACK:
+        if t and _key(t) not in seen:
+            merged.append(t)
+            seen.add(_key(t))
+    fetched = time.time() if live_ok else time.time() - JOB_TITLE_TTL + _RETRY_AFTER_FAIL
+    _cache.update(titles=merged, departments=departments, divisions=tree, live=live_ok, fetched=fetched)
+
+
+# ── public API ───────────────────────────────────────────────────────────────
 
 def get_job_titles(force: bool = False) -> list[str]:
     with _lock:
-        fresh = (time.time() - _cache["fetched"]) < JOB_TITLE_TTL
-        if _cache["titles"] and fresh and not force:
-            return _cache["titles"]
-        try:
-            live, departments = _fetch_live()
-            _cache.update(live=bool(live), departments=departments)
-        except Exception as exc:
-            log.warning("job-title API unavailable (%s) — using fallback list", exc)
-            live = []
-            _cache["live"] = False
-        merged: list[str] = []
-        for t in live + C.JOB_TITLE_FALLBACK:
-            if t and t.lower() not in {m.lower() for m in merged}:
-                merged.append(t)
-        _cache.update(titles=merged, fetched=time.time())
-        return merged
+        _refresh(force)
+        return _cache["titles"]
 
 
 def get_departments() -> list[dict]:
-    get_job_titles()
-    return _cache["departments"]
+    with _lock:
+        _refresh()
+        return _cache["departments"]
+
+
+def get_divisions() -> list[dict]:
+    with _lock:
+        _refresh()
+        return _cache["divisions"]
 
 
 def job_titles_live() -> bool:
     return bool(_cache["live"])
 
+
+def divisions_for_title(title: str) -> list[dict]:
+    """Divisions ({"id","name"}) whose job-title list contains `title` (case/space-insensitive)."""
+    k = _key(title)
+    if not k:
+        return []
+    return [{"id": d["id"], "name": d["name"]} for d in get_divisions()
+            if any(_key(t) == k for t in d["jobTitles"])]
+
+
+def resolve_division(name: str) -> dict | None:
+    """Canonical {"id","name"} for a division name (case/space-insensitive), else None."""
+    k = _key(name)
+    if not k:
+        return None
+    for d in get_divisions():
+        if _key(d["name"]) == k:
+            return {"id": d["id"], "name": d["name"]}
+    return None
+
+
+def department_for(division_id, title: str) -> dict | None:
+    """The department of `title` inside a division, when exactly one matches."""
+    k = _key(title)
+    hits = [dep for dep in get_departments()
+            if dep.get("divisionId") == division_id and any(_key(t) == k for t in dep["jobTitles"])]
+    if len(hits) == 1:
+        return {"id": hits[0].get("id"), "name": hits[0]["name"]}
+    return None
+
+
+# ── fuzzy matching ───────────────────────────────────────────────────────────
 
 def _norm(s: str) -> str:
     s = s.lower()

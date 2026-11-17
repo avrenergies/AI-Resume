@@ -151,7 +151,8 @@ const SECTIONS = [
     {k:"mobileNumbers", label:"Phone Number", type:"phones"},
   ]},
   {title:"WORK EXPERIENCE", fields:[
-    {k:"jobTitle", label:"Job Title", req:true, type:"select", opts:"jobTitles", ph:"Select Job Title"},
+    {k:"division", label:"Division", req:true, type:"division", ph:"Select division", hint:"Required. Pick a division to see its job titles."},
+    {k:"jobTitle", label:"Job Title", req:true, type:"jobtitle", ph:"Select Job Title"},
     {k:"yearsOfExperience", label:"Years of Experience", type:"select", opts:"experience", ph:"Select Years of Experience"},
     {k:"educationQualification", label:"Education Qualification", type:"select", opts:"education", ph:"Select Education Qualification"},
     {k:"certificates", label:"Certificates", type:"certs"},
@@ -202,17 +203,32 @@ function rowHtml(f) {
   else if (f.type==="textarea") ctl = `<textarea id="${id}" placeholder="${esc(f.ph)}"></textarea>`;
   else if (f.type==="select") ctl = selectHtml(id, OPTS ? OPTS[f.opts] : [], f.ph, "");
   else if (f.type==="country") ctl = selectHtml(id, OPTS ? OPTS.countries : [], f.ph, "");
+  else if (f.type==="division") ctl = selectHtml(id, divisionNames(), f.ph, "");
+  else if (f.type==="jobtitle") ctl = selectHtml(id, [], "Select a division first", "");
   else if (f.type==="state") ctl = selectHtml(id, [], f.ph, "");
   else if (f.type==="emails") ctl = `<div id="${id}_list"></div>`;
   else if (f.type==="phones") ctl = `<div id="${id}_list"></div>`;
   else if (f.type==="certs") ctl = `<div class="inline">${selectHtml(id+"_name", OPTS?OPTS.certificates:[], "Certificate Name", "")}<button class="btn ghost" id="${id}_up" type="button">⇧ Upload</button><button class="btn blue sq" id="${id}_add" type="button">+</button></div><input type="file" id="${id}_file" class="hidden" accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx"><div class="certlist" id="${id}_list"></div>`;
   return `<div class="row" id="row_${id}">
-    <div class="cell-l"><div class="dot" id="${id}_dot"></div><div><div class="lbl">${esc(f.label)}${f.req?'<span class="req">*</span>':""}</div><div class="val" id="${id}_val">—</div><div class="val src" id="${id}_src"></div></div></div>
+    <div class="cell-l"><div class="dot" id="${id}_dot"></div><div><div class="lbl">${esc(f.label)}${f.req?'<span class="req">*</span>':""}</div><div class="val" id="${id}_val">${f.hint?esc(f.hint):"—"}</div><div class="val src" id="${id}_src"></div></div></div>
     <div class="cell-r">${ctl}</div></div>`;
+}
+
+// division → job titles
+function divisionNames() { return ((OPTS && OPTS.divisions) || []).map(d=>d.name); }
+function titlesForDivision(name) { const d = ((OPTS && OPTS.divisions) || []).find(x=>x.name===name); return d ? d.jobTitles : []; }
+function refillJobTitle(value, keepUnlisted) {
+  const div = $("f_division") ? $("f_division").value : "";
+  const list = titlesForDivision(div);
+  if (!keepUnlisted && value && !list.includes(value)) value = "";
+  $("f_jobTitle").outerHTML = selectHtml("f_jobTitle", list, div ? "Select Job Title" : "Select a division first", value);
 }
 
 function wireField(f) {
   const id = "f_" + f.k.replace(/\./g,"_");
+  if (f.type==="division") {
+    $(id).addEventListener("change", () => refillJobTitle($("f_jobTitle") ? $("f_jobTitle").value : "", false));
+  }
   if (f.type==="country") {
     $(id).addEventListener("change", () => {
       for (const s of SECTIONS) for (const g of s.fields) if (g.type==="state" && g.of===f.k) refillState(g, $(id).value, "");
@@ -317,6 +333,8 @@ function fillFromRecord(rec) {
     if (f.type==="text" || f.type==="textarea") $(id).value = shown;
     else if (f.type==="select") $(id).outerHTML = selectHtml(id, OPTS[f.opts], f.ph, shown);
     else if (f.type==="country") { $(id).outerHTML = selectHtml(id, OPTS.countries, f.ph, shown); wireField(f); }
+    else if (f.type==="division") { $(id).outerHTML = selectHtml(id, divisionNames(), f.ph, shown); wireField(f); }
+    else if (f.type==="jobtitle") refillJobTitle(shown, true);
     else if (f.type==="state") { const c = get(F[top]?.value||{}, "country") || ""; refillState(f, c, shown); }
     else if (f.type==="emails") renderList(id, Array.isArray(v)?v:[]);
     else if (f.type==="phones") renderPhones(id, Array.isArray(v)?v:[]);
@@ -331,7 +349,7 @@ function readForm() {
     fullName: g("fullName"), surname: g("surname"),
     emails: readEmails("f_emails").filter(e=>e.emailAddress),
     mobileNumbers: readPhones("f_mobileNumbers").filter(p=>p.mobileNumber),
-    jobTitle: g("jobTitle"), yearsOfExperience: g("yearsOfExperience"),
+    division: g("division"), jobTitle: g("jobTitle"), yearsOfExperience: g("yearsOfExperience"),
     educationQualification: g("educationQualification"),
     certificates: CERTS.map(c=>({name:c.name, fileId:c.fileId})),
     currentWorkLocation: {country:g("currentWorkLocation.country"), state:g("currentWorkLocation.state"), city:g("currentWorkLocation.city")},
@@ -390,6 +408,7 @@ async function submit() {
   const payload = {uid: REC.uid, fields: readForm(), reviewer: localStorage.getItem("reviewer") || null};
   if (!payload.fields.fullName) { toast("Full Name is required","",true); return; }
   if (!payload.fields.emails.length) { toast("Primary Email is required","",true); return; }
+  if (!payload.fields.division) { toast("Division is required","Pick a division to see its job titles",true); return; }
   if (!payload.fields.jobTitle) { toast("Job Title is required","",true); return; }
   $("submit").disabled = true; $("submitmsg").innerHTML = '<span class="spin"></span> Saving…';
   try {
@@ -408,7 +427,7 @@ function toast(t, b, err) { const el=$("toast"); el.className="toast"+(err?" err
 // ── init ────────────────────────────────────────────────────────────────────
 async function init() {
   try { const r = await fetch(`${BASE}/options`); OPTS = await r.json(); }
-  catch (e) { OPTS = {jobTitles:[],experience:[],education:[],certificates:[],countries:["India"],states:{},countryCodes:["+91"]}; toast("Could not load dropdown options", e.message, true); }
+  catch (e) { OPTS = {jobTitles:[],divisions:[],experience:[],education:[],certificates:[],countries:["India"],states:{},countryCodes:["+91"]}; toast("Could not load dropdown options", e.message, true); }
   buildRows();
   const fi=$("fi"), drop=$("drop");
   $("browse").onclick = e => { e.stopPropagation(); fi.click(); };
