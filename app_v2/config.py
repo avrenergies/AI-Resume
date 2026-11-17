@@ -36,8 +36,11 @@ WEBHOOK_URL     = os.getenv("REVIEW_WEBHOOK_URL", "").strip()
 WEBHOOK_KEY     = os.getenv("REVIEW_WEBHOOK_KEY", "").strip()
 
 # Job titles come from the live AVR API (cached), with a built-in fallback list.
+# (the old /job-posting/departments/with-job-titles path now returns 404)
 JOB_TITLE_API   = os.getenv("JOB_TITLE_API",
-                            "https://api.avrenergies.com/job-posting/departments/with-job-titles")
+                            "https://api.avrenergies.com/departments/with-job-titles")
+# Division list (Division → Department → Job Title)
+DIVISION_API    = os.getenv("DIVISION_API", "https://api.avrenergies.com/divisions")
 JOB_TITLE_TTL   = int(os.getenv("JOB_TITLE_TTL", "3600"))
 
 # Where the v1 extractor package lives (folder that CONTAINS the `app/` package).
