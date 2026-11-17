@@ -73,8 +73,17 @@ class ReviewedFields(BaseModel):
     """Exactly what the Review & Edit column holds when the reviewer presses submit."""
     fullName: str = Field(..., min_length=1, max_length=120)
     surname: str = Field("", max_length=80)
+    # Date of birth: stored as DD/MM/YYYY. Also accepts YYYY-MM-DD (HTML date input),
+    # DD-MM-YYYY, DD.MM.YYYY and "12 Mar 1990".
+    dateOfBirth: str = Field("", max_length=40)
+    # Marital Status: one of /options -> maritalStatuses (Single, Married, Divorced, Widowed, Separated)
+    maritalStatus: str = Field("", max_length=40)
     emails: list[EmailItem] = Field(..., min_length=1)
     mobileNumbers: list[PhoneItem] = Field(default_factory=list)
+    # Division (O&M / Ferro Alloy / Cokeoven ...). The UI makes it required; the API
+    # accepts it empty and fills it from the job title when that is unambiguous.
+    division: str = Field("", max_length=80)
+    divisionId: Optional[int] = None
     jobTitle: str = Field(..., min_length=1, max_length=120)
     yearsOfExperience: str = Field("", max_length=30)
     educationQualification: str = Field("", max_length=80)
@@ -84,10 +93,36 @@ class ReviewedFields(BaseModel):
     pan: str = Field("", max_length=12)
     aadhar: str = Field("", max_length=14)
 
-    @field_validator("fullName", "surname", "jobTitle", "yearsOfExperience", "educationQualification")
+    @field_validator("fullName", "surname", "division", "jobTitle", "yearsOfExperience", "educationQualification")
     @classmethod
     def _strip(cls, v: str) -> str:
         return re.sub(r"\s+", " ", v or "").strip()
+
+    @field_validator("dateOfBirth")
+    @classmethod
+    def _dob(cls, v: str) -> str:
+        from datetime import date
+        from app_v2.personal import find_date, fmt
+        v = (v or "").strip()
+        if not v:
+            return ""
+        v = v.split("T")[0]  # "1990-03-12T00:00:00.000Z" from JS date pickers
+        dt, _ = find_date(v, user_input=True)
+        if not dt:
+            raise ValueError("Date of birth must be a real date in DD/MM/YYYY format")
+        if dt > date.today() or dt.year < 1900:
+            raise ValueError("Date of birth cannot be in the future or before 1900")
+        return fmt(dt)
+
+    @field_validator("maritalStatus")
+    @classmethod
+    def _marital(cls, v: str) -> str:
+        from app_v2.personal import normalize_marital
+        v = re.sub(r"\s+", " ", v or "").strip()
+        if not v:
+            return ""
+        # known wording -> canonical option; anything else is kept as sent (never rejected)
+        return normalize_marital(v) or v[:1].upper() + v[1:]
 
     @field_validator("pan")
     @classmethod
@@ -111,9 +146,42 @@ class ReviewedFields(BaseModel):
             self.emails[0].isPrimary = True
         if self.mobileNumbers and not any(p.isPrimary for p in self.mobileNumbers):
             self.mobileNumbers[0].isPrimary = True
+        self._resolve_division()
         if not self.permanentAddress.country:
             self.permanentAddress.country = self.currentWorkLocation.country or "India"
         return self
+
+
+    def _resolve_division(self) -> None:
+        """Canonical division name + id from the live AVR list.
+        - known name (any case/spacing) → canonical name + id
+        - empty division → filled from the job title when it belongs to exactly one division
+        - divisionId only → name filled from the id
+        - unknown name + valid divisionId → name taken from the id
+        - unknown name, no valid id → kept as sent (divisionId None) so a brand-new division is never rejected
+        """
+        from app_v2.job_titles import divisions_for_title, get_divisions, resolve_division
+        if self.division:
+            hit = resolve_division(self.division)
+            if hit:
+                self.division, self.divisionId = hit["name"], hit["id"]
+            else:
+                by_id = next((d for d in get_divisions() if d["id"] == self.divisionId), None) \
+                    if self.divisionId is not None else None
+                if by_id:
+                    self.division = by_id["name"]
+                else:
+                    self.divisionId = None
+            return
+        if self.divisionId is not None:
+            by_id = next((d for d in get_divisions() if d["id"] == self.divisionId), None)
+            if by_id:
+                self.division = by_id["name"]
+                return
+            self.divisionId = None
+        hits = divisions_for_title(self.jobTitle)
+        if len(hits) == 1:
+            self.division, self.divisionId = hits[0]["name"], hits[0]["id"]
 
 
 class ReviewSubmit(BaseModel):

@@ -33,11 +33,12 @@ from app_v2.config import (ALLOWED_CERT_EXT, ALLOWED_EXT, ALLOWED_ORIGINS, API_K
                            CERT_DIR, MAX_CERT_MB, MAX_FILE_MB, MAX_RECORDS, UPLOAD_DIR,
                            WEBHOOK_KEY, WEBHOOK_URL)
 from app_v2.extractor import extract
-from app_v2.job_titles import get_departments, get_job_titles, job_titles_live
+from app_v2.job_titles import department_for, get_departments, get_divisions, get_job_titles, job_titles_live
 from app_v2.schemas import ReviewSubmit, build_corrections
 from app_v2.store import get_store
 from app_v2.cities import all_cities, cities_for  # city dropdown (added)
 from app_v2.textract import file_to_text
+from app_v2.public import router as public_router  # careers page autofill (added)
 from app_v2.ui import HTML as _UI_HTML
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"),
@@ -74,6 +75,8 @@ app = FastAPI(
     redoc_url=None,
     lifespan=lifespan,
 )
+
+app.include_router(public_router)  # careers page autofill (added)
 
 app.add_middleware(
     CORSMiddleware,
@@ -160,8 +163,13 @@ def options(refresh: bool = Query(False, description="Force re-fetch of job titl
     titles = get_job_titles(force=refresh)
     return {
         "jobTitles": titles,
+        # Division → job titles for the Division dropdown (pick a division to see its job titles)
+        "divisions": get_divisions(),
+        "divisionNames": [d["name"] for d in get_divisions()],
         "departments": get_departments(),
         "jobTitlesSource": "avr-api" if job_titles_live() else "fallback",
+        "maritalStatuses": C.MARITAL_STATUS_OPTIONS,
+        "dateOfBirthFormat": "DD/MM/YYYY",
         "experience": C.EXPERIENCE_BUCKETS,
         "education": C.EDUCATION_OPTIONS,
         "certificates": C.CERTIFICATE_OPTIONS,
@@ -185,7 +193,9 @@ async def extract_resume(
 
     | key | value shape |
     |---|---|
-    | fullName, surname, jobTitle, yearsOfExperience, educationQualification, pan, aadhar | string |
+    | fullName, surname, division, jobTitle, yearsOfExperience, educationQualification, pan, aadhar | string |
+    | dateOfBirth | string `DD/MM/YYYY` (descriptor also has `iso` = YYYY-MM-DD) |
+    | maritalStatus | string, one of `/options` → `maritalStatuses` |
     | emails | `[{emailAddress, isPrimary}]` |
     | mobileNumbers | `[{countryCode, mobileNumber, isPrimary}]` |
     | certificates | `[{name, fileId}]` |
@@ -194,6 +204,7 @@ async def extract_resume(
 
     Every field carries `status` = `extracted` (green) / `low_confidence` (amber) /
     `not_extracted` (red), `confidence` 0–1 and `source`.
+    `division` also carries `divisionId` and `candidates` (divisions the job title belongs to).
     """
     ext = _ext_of(file.filename)
     if ext not in ALLOWED_EXT:
@@ -332,6 +343,8 @@ def submit_review(body: ReviewSubmit):
             c["fileName"] = certs[c["fileId"]].get("filename")
             c["fileUrl"] = _cert_url(c["fileId"])
 
+    dept = department_for(reviewed.get("divisionId"), reviewed.get("jobTitle", "")) \
+        if reviewed.get("divisionId") is not None else None
     candidate_record = {
         "uid": body.uid,
         "resume": _file_url(body.uid),
@@ -340,6 +353,8 @@ def submit_review(body: ReviewSubmit):
         "appliedDate": rec.get("meta", {}).get("appliedDate"),
         "reviewer": body.reviewer,
         **reviewed,
+        "department": dept["name"] if dept else "",
+        "departmentId": dept["id"] if dept else None,
     }
     webhook_status = _forward_webhook(candidate_record)
 
